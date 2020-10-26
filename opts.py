@@ -76,6 +76,19 @@ def parse_opts():
     parser.add_argument('--learning_rate_decay_rate', type=float, default=0.5)
 
     # scheduled sampling
+    """
+    结果欠佳原因在这里
+        (1)在训练阶段的decoder，是将目标样本["吃","兰州","拉面"]作为输入下一个预测分词的输入。
+        (2)而在预测阶段的decoder,是将上一个预测结果，作为下一个预测值的输入。（注意查看预测多的箭头）
+           这个差异导致了问题的产生，训练和预测的情景不同。在预测的时候，如果上一个词语预测错误，还后面全部都会跟着错误，蝴蝶效应。
+   基础模型只会使用真实lable数据作为输入， 现在，train-decoder不再一直都是真实的lable数据作为下一个时刻的输入。train-decoder时以一个
+   概率P选择模型自身的输出作为下一个预测的输入,以1-p选择真实标记作为下一个预测的输入。Secheduled sampling(计划采样)，即采样率P在训练
+   的过程中是变化的。一开始训练不充分，先让P小一些，尽量使用真实的label作为输入，随着训练的进行，将P增大，多采用自身的输出作为下一个
+   预测的输入。随着训练的进行，P越来越大大，train-decoder模型最终变来和inference-decoder预测模型一样，消除了train-decoder与inference-decoder
+   之间的差异
+   总之：通过这个scheduled-samping方案，抹平了训练decoder和预测decoder之间的差异！让预测结果和训练时的结果一样。
+   参考：https://www.cnblogs.com/panfengde/p/10315576.html
+    """
     parser.add_argument('--scheduled_sampling_start', type=int, default=-1,
                         help='at what iteration to start decay gt probability')
     parser.add_argument('--basic_ss_prob', type=float, default=0, help='initial ss prob')
@@ -87,7 +100,7 @@ def parse_opts():
                         help='Maximum scheduled sampling prob.')
 
     # self critical learning
-    parser.add_argument('--self_critical_after', type=int, default=-1)
+    parser.add_argument('--self_critical_after', type=int, default=-1)   # 是否使用增强学习训练模型
 
     #  ***************************** SAVING AND LOGGING *****************************
     parser.add_argument('--min_epoch_when_save', type=int, default=-1)
