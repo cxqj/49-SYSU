@@ -10,19 +10,19 @@ class CMG_HRNN(nn.Module):
         self.opt = opt
         assert opt.batch_size == 1
 
-        self.vocab_size = opt.vocab_size
-        self.input_encoding_size = opt.input_encoding_size
-        self.rnn_size = opt.rnn_size
-        self.num_layers = opt.num_layers
-        self.drop_prob_lm = opt.drop_prob
-        self.max_caption_len = opt.max_caption_len
+        self.vocab_size = opt.vocab_size  # 5747
+        self.input_encoding_size = opt.input_encoding_size  # 512词嵌入维度？
+        self.rnn_size = opt.rnn_size  # 512
+        self.num_layers = opt.num_layers  # 1
+        self.drop_prob_lm = opt.drop_prob # 0.5
+        self.max_caption_len = opt.max_caption_len  #30
         self.ss_prob = 0.0
-        self.sent_rnn_size = self.rnn_size
-        self.embed = nn.Embedding(self.vocab_size + 1, self.input_encoding_size)
+        self.sent_rnn_size = self.rnn_size  # 512
+        self.embed = nn.Embedding(self.vocab_size + 1, self.input_encoding_size)  # (5748,512)
 
         self.sent_rnn = nn.LSTM(opt.hidden_dim + opt.hidden_dim,
                                 self.sent_rnn_size, 1, bias=False,
-                                dropout=self.drop_prob_lm)
+                                dropout=self.drop_prob_lm)  # 1024-->512
 
         self.gate_layer = nn.Sequential(nn.Linear(2 * opt.hidden_dim + self.rnn_size, opt.hidden_dim),
                                         nn.Sigmoid())
