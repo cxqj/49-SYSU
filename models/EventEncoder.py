@@ -70,11 +70,12 @@ class TSRM_Encoder(Basic_Encoder):
     def __init__(self, opt):
         super(TSRM_Encoder, self).__init__(opt)
         self.opt = opt
-        self.hidden_dim = opt.hidden_dim
-        self.group = opt.group_num
+        self.hidden_dim = opt.hidden_dim  # 512
+        self.group = opt.group_num  # 16
         self.pre_map = nn.Sequential(nn.Linear(opt.event_context_dim, opt.hidden_dim),
                                      nn.ReLU(),
-                                     nn.Dropout(0.5))
+                                     nn.Dropout(0.5))  # event_context_dim=512
+        ### 这里也用了Q,K,V
         self.key_map = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.query_map = nn.Linear(opt.hidden_dim, opt.hidden_dim)
         self.value_map = nn.Linear(opt.hidden_dim, opt.hidden_dim)
