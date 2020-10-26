@@ -23,13 +23,13 @@ class EncoderDecoder(nn.Module):
         self.opt = opt
         if opt.feature_dim > 1024:
             self.frame_reduce_dim_layer = nn.Sequential(nn.Linear(opt.feature_dim, self.opt.hidden_dim),
-                                                        nn.ReLU())
-            self.opt.raw_feature_dim = self.opt.feature_dim
-            self.opt.feature_dim = self.opt.hidden_dim
+                                                        nn.ReLU())  # 3072-->512
+            self.opt.raw_feature_dim = self.opt.feature_dim  # 3072
+            self.opt.feature_dim = self.opt.hidden_dim  # 512
 
-        self.event_encoder_type = opt.event_encoder_type
-        self.event_encoder = models.setup_event_encoder(opt)
-        self.caption_decoder = models.setup_caption_decoder(opt)
+        self.event_encoder_type = opt.event_encoder_type  # tsrm  temporal-semantic relation modul(TSRM) to capture rich relationships between events in terms of both temporal structure and semantic meaning.
+        self.event_encoder = models.setup_event_encoder(opt)   # 事件编码器
+        self.caption_decoder = models.setup_caption_decoder(opt)   # caption解码器
 
     def forward(self, dt, mode, loader=None):
 
