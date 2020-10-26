@@ -25,12 +25,12 @@ from dataset import PropSeqDataset, collate_fn
 
 def train(opt):
     set_seed(opt.seed)
-    save_folder = build_floder(opt)
-    logger = create_logger(save_folder, 'train.log')
-    tf_writer = SummaryWriter(os.path.join(save_folder, 'tf_summary'))
+    save_folder = build_floder(opt)  # './save/debug_2020-10-26_08-53-55'  创建结果文件夹
+    logger = create_logger(save_folder, 'train.log')   # 创建logger对象
+    tf_writer = SummaryWriter(os.path.join(save_folder, 'tf_summary'))   # tensorboardX
 
     if not opt.start_from:
-        backup_envir(save_folder)
+        backup_envir(save_folder)   # backup是备份的意思
         logger.info('backup evironment completed !')
 
     saved_info = {'best': {}, 'last': {}, 'history': {}, 'eval_history': {}}
@@ -79,7 +79,7 @@ def train(opt):
     opt.vocab_size = train_loader.dataset.vocab_size
 
     # Build model
-    model = EncoderDecoder(opt)
+    model = EncoderDecoder(opt)  # 核心代码
     model.train()
 
     # Recover the parameters
