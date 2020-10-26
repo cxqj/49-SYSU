@@ -35,16 +35,16 @@ def print_opt(opt, model, logger):
     print_alert_message('Model structure:', logger)
     logger.info(model)
 
-
+# 创建保存结果文件夹
 def build_floder(opt):
     if opt.start_from:
         print('Start training from id:{}'.format(opt.start_from))
         save_folder = os.path.join(opt.save_dir, opt.start_from)
         assert os.path.exists(save_folder)
     else:
-        if not os.path.exists(opt.save_dir):
+        if not os.path.exists(opt.save_dir):   # opt.save_dir = './save'
             os.mkdir(opt.save_dir)
-        save_folder = os.path.join(opt.save_dir, opt.id)
+        save_folder = os.path.join(opt.save_dir, opt.id)  # opt.id = 'debug_2020-10-26_08-53-55'
         if os.path.exists(save_folder):
             wait_flag = input('Warning! ID {} already exists, rename it? (Y/N) : '.format(opt.id))
             if wait_flag in ['Y', 'y']:
@@ -56,9 +56,9 @@ def build_floder(opt):
         print('Results folder "{}" does not exist, creating folder...'.format(save_folder))
         os.mkdir(save_folder)
         os.mkdir(os.path.join(save_folder, 'prediction'))
-    return save_folder
+    return save_folder   # './save/debug_2020-10-26_08-53-55'
 
-
+# 备份每一次实验的文件，这个值得借鉴，相当于把工程拷贝一份到save_folder里面
 def backup_envir(save_folder):
     backup_folders = ['cfgs', 'misc', 'models']
     # backup_folders = ['models']
