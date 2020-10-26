@@ -53,16 +53,17 @@ def collate_fn(batch):
 
         proposal_length = len(timestamps_list[idx])
         timestamps = list(chain(*timestamps_list))
-        proposal_gather_idx[total_proposal_idx:total_proposal_idx + proposal_length] = idx
+        proposal_gather_idx[total_proposal_idx:total_proposal_idx + proposal_length] = idx  # 记录属于哪一个batch
+        # gt_idx_tensor的维度为(proposal_num,3)
         gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 0] = torch.from_numpy(
-            total_caption_idx + gt_idx[idx])
-        gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 1] = idx
-        gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 2] = torch.from_numpy(gt_idx[idx])
+            total_caption_idx + gt_idx[idx])  # 第一列保存
+        gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 1] = idx   # 第二列保存属于哪一个batch
+        gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 2] = torch.from_numpy(gt_idx[idx])   # 第三列保存gt_idx
 
         gt_proposal_length = len(gt_timestamps_list[idx])
         gt_timestamps = list(chain(*gt_timestamps_list))
 
-        caption_gather_idx[total_caption_idx:total_caption_idx + gt_proposal_length] = idx
+        caption_gather_idx[total_caption_idx:total_caption_idx + gt_proposal_length] = idx  #记录当前caption对应哪一个batch
 
         for iidx, captioning in enumerate(caption_list[idx]):
             _caption_len = len(captioning)
@@ -123,14 +124,14 @@ class EDVCdataset(Dataset):
         super(EDVCdataset, self).__init__()
         self.anno = json.load(open(anno_file, 'r'))
 
-        self.translator = json.load(open(translator_json, 'r'))
-        self.vocab_size = len(self.translator['word_to_ix'].keys())
+        self.translator = json.load(open(translator_json, 'r'))  # 5747个单词
+        self.vocab_size = len(self.translator['word_to_ix'].keys())  # 5747
 
         self.translator['word_to_ix'] = defaultdict(lambda: self.vocab_size,
                                                     self.translator['word_to_ix'])
         self.translator['ix_to_word'] = defaultdict(lambda: self.vocab_size,
                                                     self.translator['ix_to_word'])
-        self.max_caption_len = opt.max_caption_len
+        self.max_caption_len = opt.max_caption_len  # 30
         logger.info('load translator, total_vocab: %d', len(self.translator['ix_to_word']))
 
         self.keys = self.anno.keys()
@@ -139,15 +140,15 @@ class EDVCdataset(Dataset):
             self.keys = [k for k in self.keys if k[:13] not in invalid_videos]
         logger.info('load captioning file, %d captioning loaded', len(self.keys))
 
-        self.feature_folder = feature_folder
-        self.feature_sample_rate = opt.feature_sample_rate
+        self.feature_folder = feature_folder    # data/resnet_bn
+        self.feature_sample_rate = opt.feature_sample_rate  # 2
         self.opt = opt
 
-        self.proposal_type = proposal_type
+        self.proposal_type = proposal_type  # 'gt'
         self.is_training = is_training
-        self.train_proposal_sample_num = opt.train_proposal_sample_num
+        self.train_proposal_sample_num = opt.train_proposal_sample_num  # 24
 
-        self.feature_dim = self.opt.feature_dim
+        self.feature_dim = self.opt.feature_dim  # 3072
 
         if self.is_training and opt.train_proposal_file:
             self.train_proposal_file = json.load(open(opt.train_proposal_file))['results']
@@ -162,7 +163,7 @@ class EDVCdataset(Dataset):
     def __len__(self):
         return len(self.keys)
 
-
+    # 移除句子中的标点符号，将单词转换为对应的index,开始单词和结束单词使用0
     def translate(self, sentence, max_len):
         tokens = [',', ':', '!', '_', ';', '-', '.', '?', '/', '"', '\\n', '\\', '.']
         for token in tokens:
@@ -181,7 +182,7 @@ class EDVCdataset(Dataset):
             return ' '.join([self.translator['ix_to_word'][str(idx)] for idx in sent_ids]) + '.'
         else:
             return ''
-
+    # 将标注的时间戳转换为对应的特征所对应的时间
     def process_time_step(self, duration, timestamps_list, feature_length):
         duration = np.array(duration)
         timestamps = np.array(timestamps_list)
@@ -202,7 +203,7 @@ class PropSeqDataset(EDVCdataset):
         super(PropSeqDataset, self).__init__(anno_file,
                                              feature_folder, translator_pickle, is_training, proposal_type,
                                              logger, opt)
-
+    
     def sample_proposal_seq(self, iou_mat, sample_num, iou_thres=0):
 
         gt_num, lnt_num = iou_mat.shape
@@ -265,11 +266,11 @@ class PropSeqDataset(EDVCdataset):
             feats = (feats - RESNET_MEAN) / np.sqrt(RESNET_VAR)
 
         elif self.opt.visual_feature_type == 'resnet_bn':
-            feature_obj1 = np.load(os.path.join(self.feature_folder, key[2:13] + '_resnet.npy'))
+            feature_obj1 = np.load(os.path.join(self.feature_folder, key[2:13] + '_resnet.npy'))  # (T,2048)
             feature_obj1 = (feature_obj1 - RESNET_MEAN) / np.sqrt(RESNET_VAR)
-            feature_obj2 = np.load(os.path.join(self.feature_folder, key[2:13] + '_bn.npy'))
+            feature_obj2 = np.load(os.path.join(self.feature_folder, key[2:13] + '_bn.npy'))  # (T,1024)
             feature_obj2 = (feature_obj2 - BN_MEAN) / np.sqrt(BN_VAR)
-            feats = np.concatenate((feature_obj1, feature_obj2), 1)
+            feats = np.concatenate((feature_obj1, feature_obj2), 1)  # (T,3072)
         else:
             raise AssertionError('feature type error')
         return feats
@@ -277,14 +278,14 @@ class PropSeqDataset(EDVCdataset):
     def __getitem__(self, idx):
 
         key = str(self.keys[idx])
-        feats = self.load_feats(key)
-        feats = feats[::self.feature_sample_rate, :]
+        feats = self.load_feats(key)  # 加载特征
+        feats = feats[::self.feature_sample_rate, :]  # 降采样 (T,3072)-->(T/2,3072)
         duration = self.anno[key]['duration']
         captions = self.anno[key]['sentences']
         gt_timestamps = self.anno[key]['timestamps']  # [gt_num, 2]
 
-        caption_label = [np.array(self.translate(sent, self.max_caption_len)) for sent in captions]
-        gt_featstamps = self.process_time_step(duration, gt_timestamps, feats.shape[0])
+        caption_label = [np.array(self.translate(sent, self.max_caption_len)) for sent in captions]  # [0,1,100,101,....0]  注意起止单词索引为0
+        gt_featstamps = self.process_time_step(duration, gt_timestamps, feats.shape[0])   # [30.08,61.74]-->[30,63]  时间戳对应特征上的时间
 
         if self.proposal_type == 'learnt_seq':
             lnt_timestamps = [p['segment'] for p in self.train_proposal_file[key[2:13]]]  # [p_num ,2]
@@ -308,7 +309,7 @@ class PropSeqDataset(EDVCdataset):
             lnt_timestamps = gt_timestamps
             lnt_featstamps = gt_featstamps
             gt_idx = np.arange(len(gt_timestamps))
-            event_seq_idx = seq_gt_idx = np.expand_dims(gt_idx, 0)
+            event_seq_idx = seq_gt_idx = np.expand_dims(gt_idx, 0)  # dim = (1,4)
 
         else:
             raise AssertionError('proposal type error')
