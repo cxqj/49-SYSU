@@ -41,6 +41,7 @@ class EncoderDecoder(nn.Module):
     def get_features(self, dt, soi_select_list):
         # assert type(soi_select_list) == list
         soi_select_list = np.array(soi_select_list)  # (proposal_num,2)
+        # (Prop_N,1124), (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
         event, clip, clip_mask = self.event_encoder(dt['video_tensor'],
                                                     dt['lnt_gt_idx'][:, 1], soi_select_list, dt['lnt_event_seq_idx'],
                                                     list(chain(*dt['lnt_timestamp'])), dt['video_length'][:, 1])
@@ -66,8 +67,8 @@ class EncoderDecoder(nn.Module):
             tmp = dt['video_tensor'].reshape(vid_num * vid_len, -1)
             dt['video_tensor'] = self.frame_reduce_dim_layer(tmp).reshape(vid_num, vid_len, -1)
 
-        # Event Encoder,
-        event, clip, clip_mask = self.get_features(dt, dt['lnt_featstamps'])   
+        # Event Encoder, (Prop_N,1124), (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
+        event, clip, clip_mask = self.get_features(dt, dt['lnt_featstamps'])   # 对应着论文中的TSRM  
 
         event_feat_expand_flag = self.event_encoder_type in ['tsrm']
 
