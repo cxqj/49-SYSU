@@ -30,8 +30,10 @@ def update_values(dict_from, dict_to):
 
 def print_opt(opt, model, logger):
     print_alert_message('All args:', logger)
+    # 打印所有超参
     for key, item in opt._get_kwargs():
         logger.info('{} = {}'.format(key, item))
+    # 打印模型结构
     print_alert_message('Model structure:', logger)
     logger.info(model)
 
@@ -98,7 +100,7 @@ def create_logger(folder, filename):
     logger.addHandler(stream)
     return logger
 
-
+#打印logger弹出的信息
 def print_alert_message(str, logger=None):
     msg = '*' * 20 + ' ' + str + ' ' + '*' * (58 - len(str))
     if logger:
