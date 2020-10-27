@@ -54,7 +54,7 @@ class EncoderDecoder(nn.Module):
         assert self.opt.train_proposal_type in ['learnt_seq', 'gt']
 
         FIRST_DIM = 0
-        event_seq_idx = dt['lnt_event_seq_idx'][FIRST_DIM]
+        event_seq_idx = dt['lnt_event_seq_idx'][FIRST_DIM]  # [0,1,2,3,4,...N]
         if mode == 'train' or mode == 'train_rl':
             seq_gt_idx = dt['lnt_seq_gt_idx'][FIRST_DIM]
             cap_raw = dt['cap_raw'][FIRST_DIM]
