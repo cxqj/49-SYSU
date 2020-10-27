@@ -43,6 +43,7 @@ def collate_fn(batch):
     total_caption_idx = 0
     total_proposal_idx = 0
 
+    # 每一个视频遍历
     for idx in range(batch_size):
         video_len = feature_list[idx].shape[0]
 
@@ -51,7 +52,8 @@ def collate_fn(batch):
         video_length[idx, 1] = raw_duration[idx]
         video_mask[idx, :video_len, 0] = 1
 
-        proposal_length = len(timestamps_list[idx])
+        # learned proposal
+        proposal_length = len(timestamps_list[idx])  # 当前这个视频的proposal数量
         timestamps = list(chain(*timestamps_list))
         proposal_gather_idx[total_proposal_idx:total_proposal_idx + proposal_length] = idx  # 记录属于哪一个batch
         # gt_idx_tensor的维度为(proposal_num,3)
@@ -60,6 +62,7 @@ def collate_fn(batch):
         gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 1] = idx   # 第二列保存属于哪一个batch
         gt_idx_tensor[total_proposal_idx: total_proposal_idx + proposal_length, 2] = torch.from_numpy(gt_idx[idx])   # 第三列保存gt_idx
 
+        # gt proposal
         gt_proposal_length = len(gt_timestamps_list[idx])
         gt_timestamps = list(chain(*gt_timestamps_list))
 
@@ -77,42 +80,39 @@ def collate_fn(batch):
         "video":
             {
                 "tensor": video_tensor,  # tensor,      (video_num, video_len, video_dim)
-                "length": video_length,
-                # tensor,      (video_num, 2), the first row is feature length, the second is time length
-                "mask": video_mask,  # tensor,      (video_num, video_len,)
-                "key": list(key),  # list,        (video_num)
+                "length": video_length,  # tensor,      (video_num, 2), the first row is feature length, the second is time length
+                "mask": video_mask,      # tensor,      (video_num, video_len, 1)
+                "key": list(key),        # list,        (video_num)
             },
 
         "lnt":
             {
-                "featstamps": timestamps,  # list,        (lnt_all_event_num, 2)
-                "timestamp": list(raw_timestamp),  # list (len: video_num) of tensors (shape: (~lnt_event_num, 2))
-                "gather_idx": proposal_gather_idx,  # tensor, (lnt_all_event_num)
-                "gt_idx": gt_idx_tensor,  # tensor,      (lnt_all_event_num, 3)
+                "featstamps": timestamps,          # list,        (lnt_all_event_num, 2)
+                "timestamp": list(raw_timestamp),  # list         (lnt_all_event_num, 2))
+                "gather_idx": proposal_gather_idx, # tensor,      (lnt_all_event_num)
+                "gt_idx": gt_idx_tensor,           # tensor,      (lnt_all_event_num, 3)
 
                 # only available when video_num = 1
-                "event_seq_idx": event_seq_idx,
-                # list (len: video_num) of tensors (shape: (eseq_num, eseq_len)), eseq_len = 1 means we do not use event sequence
-                "seq_gt_idx": seq_gt_idx,
-                # list (len: video_num) of tensors(shape: (eseq_num, eseq_len)), eseq_len = 1 means we do not use event sequence
+                "event_seq_idx": event_seq_idx,  # list (1, proposal_num) of tensors (shape: (eseq_num, eseq_len)), eseq_len = 1 means we do not use event sequence
+                "seq_gt_idx": seq_gt_idx,        # list (1, proposal_num) of tensors(shape: (eseq_num, eseq_len)), eseq_len = 1 means we do not use event sequence
             },
 
         "gt":
             {
-                "featstamps": gt_timestamps,  # list,        (gt_all_event_num, 2)
-                "timestamp": list(gt_raw_timestamp),  # list (len: video_num) of tensors (shape: (gt_event_num, 2))
-                "gather_idx": caption_gather_idx,  # tensor,      (gt_all_event_num)
+                "featstamps": gt_timestamps,          # list,        (gt_all_event_num, 2)
+                "timestamp": list(gt_raw_timestamp),  # list         (gt_event_num, 2)
+                "gather_idx": caption_gather_idx,     # tensor,      (gt_all_event_num)
             },
 
         "cap":
             {
                 "tensor": caption_tensor,  # tensor,      (gt_all_event_num, cap_len)
                 "length": caption_length,  # tensor,      (gt_all_event_num)
-                "mask": caption_mask,  # tensor,      (gt_all_event_num, cap_len, 1)
+                "mask": caption_mask,      # tensor,      (gt_all_event_num, cap_len, 1)
                 "raw": list(raw_caption),  # list,        (video_num, ~gt_event_num, ~~caption_len)
             }
     }
-    dt = {k1 + '_' + k2: v2 for k1, v1 in dt.items() for k2, v2 in v1.items()}
+    dt = {k1 + '_' + k2: v2 for k1, v1 in dt.items() for k2, v2 in v1.items()}   # 将dt里面所有的键值对取出来构成一个新的字典
     return dt
 
 
@@ -279,7 +279,7 @@ class PropSeqDataset(EDVCdataset):
 
         key = str(self.keys[idx])
         feats = self.load_feats(key)  # 加载特征
-        feats = feats[::self.feature_sample_rate, :]  # 降采样 (T,3072)-->(T/2,3072)
+        feats = feats[::self.feature_sample_rate, :]  # feature_sample_rate=2 (T,3072)-->(T/2,3072)
         duration = self.anno[key]['duration']
         captions = self.anno[key]['sentences']
         gt_timestamps = self.anno[key]['timestamps']  # [gt_num, 2]
@@ -309,7 +309,7 @@ class PropSeqDataset(EDVCdataset):
             lnt_timestamps = gt_timestamps
             lnt_featstamps = gt_featstamps
             gt_idx = np.arange(len(gt_timestamps))
-            event_seq_idx = seq_gt_idx = np.expand_dims(gt_idx, 0)  # dim = (1,4)
+            event_seq_idx = seq_gt_idx = np.expand_dims(gt_idx, 0)  # dim = (1,3)
 
         else:
             raise AssertionError('proposal type error')
