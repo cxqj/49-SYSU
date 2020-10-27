@@ -83,7 +83,7 @@ def train(opt):
     model.train()
 
     # Recover the parameters
-    if opt.start_from and (not opt.pretrain):
+    if opt.start_from and (not opt.pretrain):  #start_from = '' pretrain = False
         if opt.start_from_mode == 'best':
             model_pth = torch.load(os.path.join(save_folder, 'model-best-CE.pth'))
         elif opt.start_from_mode == 'best-RL':
@@ -106,7 +106,7 @@ def train(opt):
         model.cuda()
 
     if opt.optimizer_type == 'adam':
-        optimizer = optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)
+        optimizer = optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)  # weight_decay = 0
     else:
         optimizer = optim.SGD(model.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)
 
@@ -117,7 +117,7 @@ def train(opt):
     print_opt(opt, model, logger)
     print_alert_message('Strat training !', logger)
 
-    loss_sum = np.zeros(3)
+    loss_sum = np.zeros(3)  # (3,)
     bad_video_num = 0
     start = time.time()
 
@@ -125,7 +125,7 @@ def train(opt):
     while True:
         if True:
             # lr decay
-            if epoch > opt.learning_rate_decay_start >= 0:
+            if epoch > opt.learning_rate_decay_start >= 0:  # learning_rate_decay_start=8  
                 frac = (epoch - opt.learning_rate_decay_start) // opt.learning_rate_decay_every
                 decay_factor = opt.learning_rate_decay_rate ** frac
                 opt.current_lr = opt.lr * decay_factor
@@ -134,6 +134,14 @@ def train(opt):
             utils.set_lr(optimizer, opt.current_lr)
 
             # scheduled sampling rate update
+            
+   """
+    train-decoder时以一个
+   概率P选择模型自身的输出作为下一个预测的输入,以1-p选择真实标记作为下一个预测的输入。Secheduled sampling(计划采样)，即采样率P在训练
+   的过程中是变化的。一开始训练不充分，先让P小一些，尽量使用真实的label作为输入，随着训练的进行，将P增大，多采用自身的输出作为下一个
+   预测的输入。随着训练的进行，P越来越大大，train-decoder模型最终变来和inference-decoder预测模型一样，消除了train-decoder与inference-decoder
+   之间的差异
+   """
             if epoch > opt.scheduled_sampling_start >= 0:
                 frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
                 opt.ss_prob = min(opt.basic_ss_prob + opt.scheduled_sampling_increase_prob * frac,
@@ -141,7 +149,7 @@ def train(opt):
                 model.caption_decoder.ss_prob = opt.ss_prob
 
             # self critical learning flag
-            if opt.self_critical_after != -1 and epoch >= opt.self_critical_after:
+            if opt.self_critical_after != -1 and epoch >= opt.self_critical_after:   # self_critical = -1
                 sc_flag = True
                 init_scorer()
                 model.caption_decoder.ss_prob = 0
@@ -163,12 +171,12 @@ def train(opt):
 
             if torch.cuda.is_available():
                 optimizer.zero_grad()
-                dt = {key: _.cuda() if isinstance(_, torch.Tensor) else _ for key, _ in dt.items()}
+                dt = {key: _.cuda() if isinstance(_, torch.Tensor) else _ for key, _ in dt.items()}  # 这写法有点秀
 
             dt = collections.defaultdict(lambda: None, dt)
 
             if True:
-                train_mode = 'train_rl' if sc_flag else 'train'
+                train_mode = 'train_rl' if sc_flag else 'train'   # train_rl是以强化学习的方式进行训练
 
                 loss, sample_score, greedy_score = model(dt, mode=train_mode, loader=train_loader)
                 loss_sum[0] = loss_sum[0] + loss.item()
