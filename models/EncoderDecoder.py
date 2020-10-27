@@ -40,7 +40,7 @@ class EncoderDecoder(nn.Module):
 
     def get_features(self, dt, soi_select_list):
         # assert type(soi_select_list) == list
-        soi_select_list = np.array(soi_select_list)
+        soi_select_list = np.array(soi_select_list)  # (proposal_num,2)
         event, clip, clip_mask = self.event_encoder(dt['video_tensor'],
                                                     dt['lnt_gt_idx'][:, 1], soi_select_list, dt['lnt_event_seq_idx'],
                                                     list(chain(*dt['lnt_timestamp'])), dt['video_length'][:, 1])
@@ -56,16 +56,18 @@ class EncoderDecoder(nn.Module):
         FIRST_DIM = 0
         event_seq_idx = dt['lnt_event_seq_idx'][FIRST_DIM]  # [0,1,2,3,4,...N]
         if mode == 'train' or mode == 'train_rl':
-            seq_gt_idx = dt['lnt_seq_gt_idx'][FIRST_DIM]
+            seq_gt_idx = dt['lnt_seq_gt_idx'][FIRST_DIM]    # [0,1,2,3,4,...N]
             cap_raw = dt['cap_raw'][FIRST_DIM]
-            cap_big_ids = dt['lnt_gt_idx'][:, 0]
+            cap_big_ids = dt['lnt_gt_idx'][:, 0]   # [0,1,2,3,...N]
 
+        # 特征降维(B,T,3072)通过全连接层降到(B,T,512)
         if hasattr(self, 'frame_reduce_dim_layer'):
             vid_num, vid_len, _ = dt['video_tensor'].shape
             tmp = dt['video_tensor'].reshape(vid_num * vid_len, -1)
             dt['video_tensor'] = self.frame_reduce_dim_layer(tmp).reshape(vid_num, vid_len, -1)
 
-        event, clip, clip_mask = self.get_features(dt, dt['lnt_featstamps'])
+        # Event Encoder,
+        event, clip, clip_mask = self.get_features(dt, dt['lnt_featstamps'])   
 
         event_feat_expand_flag = self.event_encoder_type in ['tsrm']
 
