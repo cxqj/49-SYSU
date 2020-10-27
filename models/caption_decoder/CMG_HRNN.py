@@ -18,7 +18,7 @@ class CMG_HRNN(nn.Module):
         self.max_caption_len = opt.max_caption_len  #30
         self.ss_prob = 0.0
         self.sent_rnn_size = self.rnn_size  # 512
-        self.embed = nn.Embedding(self.vocab_size + 1, self.input_encoding_size)  # (5748,512)
+        self.embed = nn.Embedding(self.vocab_size + 1, self.input_encoding_size)  # (5748,512)词嵌入矩阵
 
         self.sent_rnn = nn.LSTM(opt.hidden_dim + opt.hidden_dim,
                                 self.sent_rnn_size, 1, bias=False,
@@ -32,11 +32,11 @@ class CMG_HRNN(nn.Module):
                                         nn.Tanh())
         self.para_transfer_layer = nn.Linear(self.sent_rnn_size, self.rnn_size * self.num_layers)
 
-        self.gate_drop = nn.Dropout(p=opt.drop_prob)
+        self.gate_drop = nn.Dropout(p=opt.drop_prob)  # 0.5
 
-        self.logit = nn.Linear(self.rnn_size, self.vocab_size + 1)
-        self.dropout = nn.Dropout(self.drop_prob_lm)
-        self.init_weights()
+        self.logit = nn.Linear(self.rnn_size, self.vocab_size + 1)  # 512-->5748
+        self.dropout = nn.Dropout(self.drop_prob_lm)  # 0.5
+        self.init_weights()  # 初始化词嵌入和logit全连接层的参数
 
     def init_weights(self):
         initrange = 0.1
@@ -263,31 +263,32 @@ class ShowAttendTellCore(nn.Module):
 
     def __init__(self, opt):
         super(ShowAttendTellCore, self).__init__()
-        self.input_encoding_size = opt.input_encoding_size
+        self.input_encoding_size = opt.input_encoding_size   #512
 
-        self.rnn_size = opt.rnn_size
-        self.num_layers = opt.num_layers
-        self.drop_prob_lm = opt.drop_prob
+        self.rnn_size = opt.rnn_size   # 512
+        self.num_layers = opt.num_layers  # 1
+        self.drop_prob_lm = opt.drop_prob # 0.5
         # self.fc_feat_size = opt.fc_feat_size
-        self.att_feat_size = opt.clip_context_dim
-        self.att_hid_size = opt.att_hid_size
+        self.att_feat_size = opt.clip_context_dim  # 512
+        self.att_hid_size = opt.att_hid_size  # 512
 
         self.opt = opt
-        self.wordRNN_input_feats_type = opt.wordRNN_input_feats_type
-        self.input_dim = self.decide_input_feats_dim()
+        self.wordRNN_input_feats_type = opt.wordRNN_input_feats_type  # 'C'
+        self.input_dim = self.decide_input_feats_dim()  # 512
 
         self.rnn = nn.LSTM(self.input_encoding_size + self.input_dim,
                                                       self.rnn_size, self.num_layers, bias=False,
-                                                      dropout=self.drop_prob_lm)
+                                                      dropout=self.drop_prob_lm)   # 1024-->512
 
         if self.att_hid_size > 0:
-            self.ctx2att = nn.Linear(self.att_feat_size, self.att_hid_size)
-            self.h2att = nn.Linear(self.rnn_size, self.att_hid_size)
-            self.alpha_net = nn.Linear(self.att_hid_size, 1)
+            self.ctx2att = nn.Linear(self.att_feat_size, self.att_hid_size)  # 512-->512
+            self.h2att = nn.Linear(self.rnn_size, self.att_hid_size)   # 512-->512
+            self.alpha_net = nn.Linear(self.att_hid_size, 1)  # 512-->1
         else:
             self.ctx2att = nn.Linear(self.att_feat_size, 1)
             self.h2att = nn.Linear(self.rnn_size, 1)
 
+    # 判定单词RNN输入特征的类型，'E'代表event_context_dim=1124  'C'代表clip_context_dim=512
     def decide_input_feats_dim(self):
         dim = 0
         if 'E' in self.wordRNN_input_feats_type:
@@ -333,7 +334,7 @@ class ShowAttendTellCore(nn.Module):
         return output.squeeze(0), state
 
 
-
+# CMG_HRNN在这里是父类
 class ShowAttendTellModel(CMG_HRNN):
     def __init__(self, opt):
         super(ShowAttendTellModel, self).__init__(opt)
