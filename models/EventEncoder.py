@@ -31,23 +31,24 @@ class Basic_Encoder(nn.Module):
             clip_mask[i, :len(selected)] = 1
         return clip_feats, clip_mask  # (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
 
-
-def extract_position_embedding(position_mat, feat_dim, wave_length=10000):
+# 获得每一对提议的position矩阵后，将其编码为向量矩阵
+def extract_position_embedding(position_mat, feat_dim, wave_length=10000):  # position_mat:(Porp_N, Prop_N, 2), feat_dim:512
     # position_mat, [num_rois, nongt_dim, 2]
     num_rois, nongt_dim, _ = position_mat.shape
-    feat_range = np.arange(0, feat_dim / 4)
-
-    dim_mat = np.power(np.full((1,), wave_length), (4. / feat_dim) * feat_range)
-    dim_mat = np.reshape(dim_mat, newshape=(1, 1, 1, -1))
-    position_mat = np.expand_dims(100.0 * position_mat, axis=3)
-    div_mat = np.divide(position_mat, dim_mat)
-    sin_mat = np.sin(div_mat)
-    cos_mat = np.cos(div_mat)
+    feat_range = np.arange(0, feat_dim / 4)  
+    # np.full() 第一个参数为要填充的矩阵形状，第二个形状是填充的数值
+    # np.power(x,y)  计算x的y次方 
+    dim_mat = np.power(np.full((1,), wave_length), (4. / feat_dim) * feat_range)  # (128,)
+    dim_mat = np.reshape(dim_mat, newshape=(1, 1, 1, -1))   # (1,1,1,128)
+    position_mat = np.expand_dims(100.0 * position_mat, axis=3)  # (Prop_N,Prop_N,2,1)
+    div_mat = np.divide(position_mat, dim_mat)   # (Prop_N,Prop_N,2,128)
+    sin_mat = np.sin(div_mat)     # (Prop_N,Prop_N,2,128)
+    cos_mat = np.cos(div_mat)     # (Prop_N,Prop_N,2,128)
     # embedding, [num_rois, nongt_dim, 2, feat_dim/2]
-    embedding = np.concatenate((sin_mat, cos_mat), axis=3)
+    embedding = np.concatenate((sin_mat, cos_mat), axis=3)   # (Prop_N,Prop_N,2,256)
     # embedding, [num_rois, nongt_dim, 2, feat_dim/2]
-    embedding = np.reshape(embedding, newshape=(num_rois, nongt_dim, feat_dim))
-    return embedding
+    embedding = np.reshape(embedding, newshape=(num_rois, nongt_dim, feat_dim))    # (Prop_N,Prop_N,512)
+    return embedding     # (Prop_N,Prop_N,512)
 
 # 编码了每一对提议的相对长度和相对距离信息
 def extract_position_matrix(bbox, nongt_dim):  # bbox:(Prop_N,2)
@@ -126,7 +127,7 @@ class TSRM_Encoder(Basic_Encoder):
         key = self.key_map(event_feats_expand).reshape(event_num, self.group, int(self.hidden_dim / self.group)).transpose(0,
                                                                                                                      1)  # (Prop_N,512)-->(Prop_N,16,32)-->(16, Prop_N, 32)
 
-        cos_sim = torch.bmm(query_mat, key.transpose(1, 2))  # [self.group, Prop_N, Prop_N]
+        cos_sim = torch.bmm(query_mat, key.transpose(1, 2))  # [16, Prop_N, Prop_N]
         cos_sim = cos_sim / math.sqrt(self.hidden_dim / self.group)  
         sim = cos_sim
         mask = mask.unsqueeze(0)  # (1,Prop_N,Prop_N)
@@ -135,31 +136,31 @@ class TSRM_Encoder(Basic_Encoder):
         if self.use_posit_branch:
             pos_matrix = extract_position_matrix(np.array(timestamp_expand), event_num)   # (Prop_N,2) 
             pos_feats = extract_position_embedding(pos_matrix,
-                                                   self.posit_hidden_dim)  # [event_num, event_num, self.posit_hidden_dim]
-            pos_feats = feats.new_tensor(pos_feats).reshape(-1, self.posit_hidden_dim)
-            pos_sim = self.pair_pos_fc2(torch.tanh(self.pair_pos_fc1(pos_feats))).reshape(event_num, event_num, self.group)
-            pos_sim = pos_sim.permute(2, 0, 1)
-            sim = cos_sim + pos_sim
+                                                   self.posit_hidden_dim)  # [Prop_N, Prop_N, 512]
+            pos_feats = feats.new_tensor(pos_feats).reshape(-1, self.posit_hidden_dim)  # (Prop_N x Prop_N, 512)
+            pos_sim = self.pair_pos_fc2(torch.tanh(self.pair_pos_fc1(pos_feats))).reshape(event_num, event_num, self.group)  # 经过两个全连接层编码 (Prop_N, Prop_N, 16)
+            pos_sim = pos_sim.permute(2, 0, 1)   # (16,Prop_N,Prop_N)
+            sim = cos_sim + pos_sim   # (16,Prop_N,Prop_N)
 
         sim = F.softmax(sim, dim=2)
-        sim = (sim * mask) / (1e-5 + torch.sum(sim * mask, dim=2, keepdim=True))
+        sim = (sim * mask) / (1e-5 + torch.sum(sim * mask, dim=2, keepdim=True))   # (16,Prop_N,Prop_N)
 
-        value = self.value_map(event_feats_expand).reshape(event_num, self.group, -1).transpose(0, 1)
-        event_ctx = torch.bmm(sim, value)
-        event_ctx = event_ctx.transpose(0, 1).reshape(event_num, -1)
-        event_ctx = torch.cat((F.relu(event_ctx), event_feats_expand), 1)
-        event_ctx = self.drop(event_ctx)
+        value = self.value_map(event_feats_expand).reshape(event_num, self.group, -1).transpose(0, 1)  # (Prop_N,512)-->(Prop_N,16,32)-->(16,Prop_N,32)
+        event_ctx = torch.bmm(sim, value)  # (16, Prop_N, Prop_N) x (16, Prop_N, 32)-->(16, Prop_N, 32)
+        event_ctx = event_ctx.transpose(0, 1).reshape(event_num, -1)  # (Prop_N,512)
+        event_ctx = torch.cat((F.relu(event_ctx), event_feats_expand), 1)  # (Prop_N,1024)
+        event_ctx = self.drop(event_ctx)  
 
         # positional feature vector for each event
-        pos_feats = feats.new(len(timestamp_expand), 100).zero_()
-        for i in range(len(timestamp_expand)):
+        pos_feats = feats.new(len(timestamp_expand), 100).zero_()  # (Prop_N,100)
+        for i in range(len(timestamp_expand)):    
             s, e = timestamp_expand[i]
             duration = vid_time_len_expand[i]
             s, e = min(int(s / duration * 99), 99), min(int(e / duration * 99), 99)
             pos_feats[i, s: e + 1] = 1
-        event_ctx = torch.cat([event_ctx, pos_feats], dim=1)
+        event_ctx = torch.cat([event_ctx, pos_feats], dim=1)  # (Prop_N,1024) + (Prop_N,100)-->(Prop_N,1124)
 
-        return event_ctx, clip_feats, clip_mask
+        return event_ctx, clip_feats, clip_mask   # (Prop_N,1124), (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
 
 
 if __name__ == '__main__':
