@@ -21,15 +21,15 @@ class Basic_Encoder(nn.Module):
         return event_feats, clip_feats, clip_mask
 
     def get_clip_level_feats(self, feats, vid_idx, featstamps):
-        max_att_len = max([(s[1] - s[0] + 1) for s in featstamps])
-        clip_mask = feats.new(len(featstamps), max_att_len).zero_()
-        clip_feats = feats.new(len(featstamps), max_att_len, feats.shape[-1]).zero_()
+        max_att_len = max([(s[1] - s[0] + 1) for s in featstamps])   # 最长的事件长度
+        clip_mask = feats.new(len(featstamps), max_att_len).zero_()  # (Prop_N, max_len)
+        clip_feats = feats.new(len(featstamps), max_att_len, feats.shape[-1]).zero_()  # (Prop_N, max_len, 512)
         for i, soi in enumerate(featstamps):
             v_idx = vid_idx[i]
-            selected = feats[v_idx][soi[0]:soi[1] + 1].reshape(-1, feats.shape[-1])
+            selected = feats[v_idx][soi[0]:soi[1] + 1].reshape(-1, feats.shape[-1])  # (T,512)
             clip_feats[i, :len(selected), :] = selected
             clip_mask[i, :len(selected)] = 1
-        return clip_feats, clip_mask
+        return clip_feats, clip_mask  # (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
 
 
 def extract_position_embedding(position_mat, feat_dim, wave_length=10000):
@@ -49,20 +49,20 @@ def extract_position_embedding(position_mat, feat_dim, wave_length=10000):
     embedding = np.reshape(embedding, newshape=(num_rois, nongt_dim, feat_dim))
     return embedding
 
+# 编码了每一对提议的相对长度和相对距离信息
+def extract_position_matrix(bbox, nongt_dim):  # bbox:(Prop_N,2)
+    start, end = np.split(bbox, 2, axis=1)     # start:(Prop_N,1), end:(Prop_N,1)
+    center = 0.5 * (start + end)               # center:(Prop_N,1)
+    length = (end - start).astype('float32')   # length: (Prop_N,1)
+    length = np.maximum(length, 1e-1)  
 
-def extract_position_matrix(bbox, nongt_dim):
-    start, end = np.split(bbox, 2, axis=1)
-    center = 0.5 * (start + end)
-    length = (end - start).astype('float32')
-    length = np.maximum(length, 1e-1)
-
-    delta_center = np.divide(center - np.transpose(center), length)
+    delta_center = np.divide(center - np.transpose(center), length)  # (Prop_N,Prop_N)
     delta_center = delta_center
-    delta_length = np.divide(np.transpose(length),length)
+    delta_length = np.divide(np.transpose(length),length)   # (Prop_N,Prop_N)
     delta_length = np.log(delta_length)
-    delta_center = np.expand_dims(delta_center, 2)
-    delta_length = np.expand_dims(delta_length, 2)
-    position_matrix = np.concatenate((delta_center, delta_length), axis=2)
+    delta_center = np.expand_dims(delta_center, 2)   # (Prop_N,Prop_N,1)
+    delta_length = np.expand_dims(delta_length, 2)   # (Prop_N,Prop_N,1)
+    position_matrix = np.concatenate((delta_center, delta_length), axis=2)  # (Prop_N,Prop_N,2)
     return position_matrix
 
 
@@ -89,41 +89,51 @@ class TSRM_Encoder(Basic_Encoder):
         opt.event_context_dim = 2 * self.hidden_dim + 100
         opt.clip_context_dim = self.opt.feature_dim
 
+    """
+    feats: (B,T,512)
+    vid_idx: [0,0,0,..,Prop_N]
+    featstamps:  (Prop_N,2)
+    event_seq_idx: [0,1,2,....,Prop_N]
+    timestamps: [[0,7.67],[7.67,31.94],[31.94,50.25],[50.25,61.32],[61.32,73.67],[73.67,81.25]]
+    vid_time_len: 85.17
+    """
     def forward(self, feats, vid_idx, featstamps, event_seq_idx, timestamps, vid_time_len):
-        clip_feats, clip_mask = self.get_clip_level_feats(feats, vid_idx, featstamps)
-        event_feats = (clip_feats * clip_mask.unsqueeze(2)).sum(1) / (clip_mask.sum(1, keepdims=True) + 1e-5)
-        event_feats = self.pre_map(event_feats)
+        clip_feats, clip_mask = self.get_clip_level_feats(feats, vid_idx, featstamps)  # (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
+        event_feats = (clip_feats * clip_mask.unsqueeze(2)).sum(1) / (clip_mask.sum(1, keepdims=True) + 1e-5)  # (Prop_N, max_event_len, 512)-->(Prop_N, 512)
+        event_feats = self.pre_map(event_feats)   # (Prop_N, 512)-->(Prop_N,512)
 
-        batch_size = len(event_seq_idx)
-        event_num = sum([_.shape[0] * _.shape[1] for _ in event_seq_idx])
-        event_feats_expand = feats.new_zeros(event_num, event_feats.shape[-1])
-        mask = feats.new_zeros(event_num, event_num)
+        batch_size = len(event_seq_idx)  # 1
+        event_num = sum([_.shape[0] * _.shape[1] for _ in event_seq_idx])  # event_seq_idx:(1,Prop_N)
+        event_feats_expand = feats.new_zeros(event_num, event_feats.shape[-1])  # (Prop_N,512)
+        mask = feats.new_zeros(event_num, event_num)  # (Prop_N,Prop_N)
         timestamp_expand = []
         vid_time_len_expand = []
 
         total_idx = 0
         for i in range(batch_size):
-            vid_start_idx = (vid_idx < i).sum().item()
+            vid_start_idx = (vid_idx < i).sum().item()  # 0
             for j in range(event_seq_idx[i].shape[0]):
-                event_idx = vid_start_idx + event_seq_idx[i][j]
-                event_feats_expand[total_idx: total_idx + len(event_idx)] = event_feats[event_idx]
-                mask[total_idx: total_idx + len(event_idx), total_idx: total_idx + len(event_idx)] = 1
-                timestamp_expand.extend([timestamps[ii] for ii in event_idx])
-                vid_time_len_expand.extend([vid_time_len[i].item() for jj in event_idx])
+                event_idx = vid_start_idx + event_seq_idx[i][j]  # [0,1,2,3,...,Prop_N]
+                event_feats_expand[total_idx: total_idx + len(event_idx)] = event_feats[event_idx]  # (Prop_N,512) 
+                mask[total_idx: total_idx + len(event_idx), total_idx: total_idx + len(event_idx)] = 1  # (Prop_N,Prop_N)
+                timestamp_expand.extend([timestamps[ii] for ii in event_idx])  # [[0,7.67],[7.67,31.69],...[73.17,83.67]]
+                vid_time_len_expand.extend([vid_time_len[i].item() for jj in event_idx])  # [85.16,85.16,...,85.16]
                 total_idx += len(event_idx)
 
+        # 这里用的就是transformer的结构，group相当于multi_head
         query_mat = self.query_map(event_feats_expand).reshape(event_num, self.group,
-                                                     int(self.hidden_dim / self.group)).transpose(0, 1)
+                                                     int(self.hidden_dim / self.group)).transpose(0, 1)  # (Prop_N,512)-->(Prop_N,16,32)-->(16, Prop_N, 32)
         key = self.key_map(event_feats_expand).reshape(event_num, self.group, int(self.hidden_dim / self.group)).transpose(0,
-                                                                                                                     1)
+                                                                                                                     1)  # (Prop_N,512)-->(Prop_N,16,32)-->(16, Prop_N, 32)
 
-        cos_sim = torch.bmm(query_mat, key.transpose(1, 2))  # [self.group, event_num, event_num]
-        cos_sim = cos_sim / math.sqrt(self.hidden_dim / self.group)
+        cos_sim = torch.bmm(query_mat, key.transpose(1, 2))  # [self.group, Prop_N, Prop_N]
+        cos_sim = cos_sim / math.sqrt(self.hidden_dim / self.group)  
         sim = cos_sim
-        mask = mask.unsqueeze(0)
+        mask = mask.unsqueeze(0)  # (1,Prop_N,Prop_N)
 
+        ###### 对于论文中Temporal Relation 分支  ######
         if self.use_posit_branch:
-            pos_matrix = extract_position_matrix(np.array(timestamp_expand), event_num)
+            pos_matrix = extract_position_matrix(np.array(timestamp_expand), event_num)   # (Prop_N,2) 
             pos_feats = extract_position_embedding(pos_matrix,
                                                    self.posit_hidden_dim)  # [event_num, event_num, self.posit_hidden_dim]
             pos_feats = feats.new_tensor(pos_feats).reshape(-1, self.posit_hidden_dim)
