@@ -76,10 +76,10 @@ class EncoderDecoder(nn.Module):
             # event(TSRM): (Prop_N,1124)  clip:(Prop_N, max_event_len, 512)  clip_mask: (Prop_N, max_event_len, 512)
             # dt['cap_tensor'][cap_big_ids]: (Prop_N,max_sent_length)  event_seq_idx:[0,1,2,...,Prop_N]  event_feat_expand_flag = 1
             cap_prob = self.caption_decoder(event, clip, clip_mask, dt['cap_tensor'][cap_big_ids],
-                                           event_seq_idx, event_feat_expand_flag)
-            cap_prob = cap_prob.reshape(-1, cap_prob.shape[-2], cap_prob.shape[-1])
-            caption_tensor = dt['cap_tensor'][:, 1:][seq_gt_idx.reshape(-1)]
-            caption_mask = dt['cap_mask'][:, 1:][seq_gt_idx.reshape(-1)]
+                                           event_seq_idx, event_feat_expand_flag)  # (1,Prop_N,max_sent_len-1,5478)
+            cap_prob = cap_prob.reshape(-1, cap_prob.shape[-2], cap_prob.shape[-1])  # (Prop_N,max_sent_len-1,5478)
+            caption_tensor = dt['cap_tensor'][:, 1:][seq_gt_idx.reshape(-1)]  # (Prop_N,max_sent_len-1)
+            caption_mask = dt['cap_mask'][:, 1:][seq_gt_idx.reshape(-1)]   # (Prop_N,max_sent_len-1, 1)
             loss = self.caption_decoder.build_loss(cap_prob, caption_tensor, caption_mask)
             return loss, torch.zeros(1), torch.zeros(1)
 
