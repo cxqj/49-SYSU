@@ -73,6 +73,8 @@ class EncoderDecoder(nn.Module):
         event_feat_expand_flag = self.event_encoder_type in ['tsrm']
 
         if mode == 'train':
+            # event(TSRM): (Prop_N,1124)  clip:(Prop_N, max_event_len, 512)  clip_mask: (Prop_N, max_event_len, 512)
+            # dt['cap_tensor'][cap_big_ids]: (Prop_N,max_sent_length)  event_seq_idx:[0,1,2,...,Prop_N]  event_feat_expand_flag = 1
             cap_prob = self.caption_decoder(event, clip, clip_mask, dt['cap_tensor'][cap_big_ids],
                                            event_seq_idx, event_feat_expand_flag)
             cap_prob = cap_prob.reshape(-1, cap_prob.shape[-2], cap_prob.shape[-1])
