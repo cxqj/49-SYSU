@@ -80,12 +80,12 @@ def evaluate(model, loader, dvc_json_path, tap_json_path, score_threshold=0.1, n
     if tap_json_path:
         with open(tap_json_path, 'r') as f:
             tap_json = json.load(f)['results']
-            tap_keys = ['v_'+key for key in tap_json.keys()]
-            loader.dataset.keys = list(set(loader.dataset.keys) & set(tap_keys))
+            tap_keys = ['v_'+key for key in tap_json.keys()]  # 5817 videos
+            loader.dataset.keys = list(set(loader.dataset.keys) & set(tap_keys))  # 当debug时只使用25个视频
 
     with torch.set_grad_enabled(False):
         for dt in tqdm(loader):
-            valid_keys = ["video_tensor", "video_length", "video_mask", "video_key"]
+            valid_keys = ["video_tensor", "video_length", "video_mask", "video_key"]  # only using these info when debuging
             dt = {key: value for key, value in dt.items() if key in valid_keys}
             if torch.cuda.is_available():
                 dt = {key: _.cuda() if isinstance(_, torch.Tensor) else _ for key, _ in dt.items()}
@@ -101,18 +101,22 @@ def evaluate(model, loader, dvc_json_path, tap_json_path, score_threshold=0.1, n
             else:
                 raise ValueError('load_tap_json must have a value')
 
-            raw_timestamps = [[p['segment'] for p in info] for video_name, info in batch_json.items()]
-            caption_nums = [len(info) for video_name, info in batch_json.items()]
+            raw_timestamps = [[p['segment'] for p in info] for video_name, info in batch_json.items()]  # [[[0.28,55.15],[13.79,54.32]]]
+            caption_nums = [len(info) for video_name, info in batch_json.items()]  # [2]
+            """
+            0 0 0
+            0 0 0 
+            """
             gather_idx = np.array(list(
                 chain(*[[(0, dt['video_key'].index(video_name), 0) for p in info] for i, (video_name, info) in
                         enumerate(batch_json.items())])))
-            feat_len, raw_len = np.split(dt['video_length'].cpu().numpy()[gather_idx[:, 1]], 2, 1)
-            dt['lnt_featstamps'] = loader.dataset.process_time_step(raw_len, list(chain(*raw_timestamps)), feat_len)
-            dt['lnt_timestamp'] = raw_timestamps
+            feat_len, raw_len = np.split(dt['video_length'].cpu().numpy()[gather_idx[:, 1]], 2, 1)  #feat_len:(2,1) raw_len:(2,1)
+            dt['lnt_featstamps'] = loader.dataset.process_time_step(raw_len, list(chain(*raw_timestamps)), feat_len)  # [[0,54],[13,54]]
+            dt['lnt_timestamp'] = raw_timestamps   # [[[0.28,55.15],[13.79,54.32]]]
 
             if 'hrnn' in opt.caption_decoder_type:
                 assert opt.batch_size == 1
-                dt['lnt_event_seq_idx'] = [np.arange(caption_nums[i])[np.newaxis, :] for i in range(len(caption_nums))]
+                dt['lnt_event_seq_idx'] = [np.arange(caption_nums[i])[np.newaxis, :] for i in range(len(caption_nums))]  #  [0,1]
                 dt['lnt_gt_idx'] = gather_idx
                 FIRST_DIM = 0
                 seq, cap_prob = model.forward_hrnn(dt, mode='eval')
