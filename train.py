@@ -117,7 +117,7 @@ def train(opt):
     print_opt(opt, model, logger)
     print_alert_message('Strat training !', logger)
 
-    loss_sum = np.zeros(3)  # (3,)
+    loss_sum = np.zeros(3)  # (3,)  3 for loss, sample_score, greedy_score
     bad_video_num = 0
     start = time.time()
 
@@ -179,9 +179,9 @@ def train(opt):
                 train_mode = 'train_rl' if sc_flag else 'train'   # train_rl是以强化学习的方式进行训练
 
                 loss, sample_score, greedy_score = model(dt, mode=train_mode, loader=train_loader)
-                loss_sum[0] = loss_sum[0] + loss.item()
-                loss_sum[1] = loss_sum[1] + sample_score.mean().item()
-                loss_sum[2] = loss_sum[2] + greedy_score.mean().item()
+                loss_sum[0] = loss_sum[0] + loss.item()  # loss
+                loss_sum[1] = loss_sum[1] + sample_score.mean().item()    # sample_score
+                loss_sum[2] = loss_sum[2] + greedy_score.mean().item()    # greedy_score
 
                 loss.backward()
                 utils.clip_gradient(optimizer, opt.grad_clip)
@@ -191,6 +191,7 @@ def train(opt):
 
             losses_log_every = int(len(train_loader) / 5)
 
+            ######## 记录loss log #########
             if iteration % losses_log_every == 0:
                 end = time.time()
                 losses = np.round(loss_sum / losses_log_every, 3)
@@ -219,10 +220,10 @@ def train(opt):
             dvc_json_path = os.path.join(save_folder, 'prediction',
                                          'num{}_epoch{}_score{}_nms{}_top{}.json'.format(
                                              len(val_dataset), epoch, opt.eval_score_threshold,
-                                             opt.eval_nms_threshold, opt.eval_top_n))
+                                             opt.eval_nms_threshold, opt.eval_top_n))  # eval_score_thresh:0.0 eval_nms_thresh:1 eval_top_n: 100
             eval_score = evaluate(model, val_loader, dvc_json_path, './data/captiondata/val_1_for_tap.json',
                                   opt.eval_score_threshold, opt.eval_nms_threshold,
-                                  opt.eval_top_n, logger=logger)
+                                  opt.eval_top_n, logger=logger)  # eval_score_threshhold:0.0  eval_nms_threshhold:1  eval_top_n: 100
             current_score = np.array(eval_score['METEOR']).mean()
 
             # add to tf summary
