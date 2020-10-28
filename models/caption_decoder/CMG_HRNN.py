@@ -49,14 +49,14 @@ class CMG_HRNN(nn.Module):
         return (weight.new(self.num_layers, batch_size, self.rnn_size).zero_(),
                 weight.new(self.num_layers, batch_size, self.rnn_size).zero_())  # (h0, c0)
 
-    def build_loss(self, input, target, mask):
+    def build_loss(self, input, target, mask):  # input:(Prop_N,max_sent_len-1,5748) target:(Prop_N,max_sent_len-1) mask:(Prop_N,max_sent_len-1,1)
         target = target[:, :input.size(1)]
         mask = mask[:, :input.size(1)]
-        input = input.reshape(-1, input.size(2))
-        target = target.reshape(-1, 1)
-        mask = mask.reshape(-1, 1)
-        output = - input.gather(1, target) * mask
-        output = torch.sum(output) / (torch.sum(mask) + 1e-6)
+        input = input.reshape(-1, input.size(2))   # (Prop_N * max_sent_len-1,5748)
+        target = target.reshape(-1, 1)   # (Prop_N * max_sent_len-1, 1)
+        mask = mask.reshape(-1, 1)  # (Prop_N * max_sent_len-1, 1) 
+        output = - input.gather(1, target) * mask  # (Prop_N * max_sent_len-1, 1)
+        output = torch.sum(output) / (torch.sum(mask) + 1e-6)  # 8.76
         return output
 
     def build_rl_loss(self, input, seq, reward):
