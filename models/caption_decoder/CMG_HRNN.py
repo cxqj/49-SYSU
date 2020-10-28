@@ -98,31 +98,31 @@ class CMG_HRNN(nn.Module):
             # cross-modal fusion
             # last_sent_state: linguistic information of previous events
             # event_idx: visual information of previous events
-            prev_state_proj = self.global_proj(last_sent_state)
-            event_proj = self.local_proj(event_idx)
-            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)
-            gate = self.gate_layer(self.gate_drop(gate_input))
-            gate = torch.cat((gate, 1 - gate), dim=1)
-            sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)
-            sent_rnn_input = sent_rnn_input * gate
+            prev_state_proj = self.global_proj(last_sent_state)  # (1,152)-->(1,512)
+            event_proj = self.local_proj(event_idx)  # (1,1124)-->(1,512)
+            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)  # (1,1536)
+            gate = self.gate_layer(self.gate_drop(gate_input))  # (1,1536)-->(1,512)
+            gate = torch.cat((gate, 1 - gate), dim=1)  #(1,1024)
+            sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)  # (1,1024)
+            sent_rnn_input = sent_rnn_input * gate  # (1,1024)
             _, para_state = self.sent_rnn(sent_rnn_input.unsqueeze(0), para_state)
 
-            para_c, para_h = para_state
-            num_layers, batch_size, para_dim = para_h.size()
-            init_h = self.para_transfer_layer(para_h[-1]).reshape(self.num_layers, batch_size, para_dim)
-            state = (init_h, init_h)
+            para_c, para_h = para_state  # (1,1,512), (1,1,512)
+            num_layers, batch_size, para_dim = para_h.size()  # 1, 1, 512
+            init_h = self.para_transfer_layer(para_h[-1]).reshape(self.num_layers, batch_size, para_dim)  # (1,1,512)
+            state = (init_h, init_h)  # [(1,1,512),(1,1,512)]
 
             outputs = []
-            seq_len_idx = (seq_idx > 0).sum(1) + 2
+            seq_len_idx = (seq_idx > 0).sum(1) + 2  # 当前语句的真实长度
 
-            last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)
+            last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)   # (1,512)
 
             for i in range(seq_idx.size(1) - 1):
                 if self.training and i >= 1 and self.ss_prob > 0.0:  # otherwiste no need to sample
                     sample_prob = clip.new(eseq_num).uniform_(0, 1)
                     sample_mask = sample_prob < self.ss_prob
                     if sample_mask.sum() == 0:
-                        it = seq_idx[:, i].clone().long()
+                        it = seq_idx[:, i].clone().long() 
                     else:
                         sample_ind = sample_mask.nonzero().view(-1)
                         it = seq_idx[:, i].clone().long()
@@ -131,11 +131,11 @@ class CMG_HRNN(nn.Module):
                                        torch.multinomial(prob_prev, 1).view(-1).index_select(0, sample_ind))
                         it = Variable(it, requires_grad=False)
                 else:
-                    it = seq_idx[:, i].clone().long()
+                    it = seq_idx[:, i].clone().long()   # word_index
                     # break if all the sequences end
                 if i >= 1 and seq_idx[:, i].data.sum() == 0:
                     break
-
+                # event_idx:(1,1124)  clip_idx:(1,max_event_len,512) clip_mask_idx:(1,max_event_len) state:[]
                 output, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)
 
                 interest = (seq_len_idx == i + 2)
@@ -160,9 +160,10 @@ class CMG_HRNN(nn.Module):
         return para_output_tensor
 
     def get_logprobs_state(self, it, event, clip, clip_mask, state):
-        xt = self.embed(it)
-        output, state = self.core(xt, event, clip, clip_mask, state)
-        logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)
+        xt = self.embed(it)  # (1,512)
+        # 这里调用了ShowAttendTellCore的forward函数
+        output, state = self.core(xt, event, clip, clip_mask, state)  # 
+        logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)  
         return logprobs, state
 
     ##### sample是使用强化训练的时候使用的 #####
@@ -311,28 +312,29 @@ class ShowAttendTellCore(nn.Module):
 
         input_feats = torch.cat(input_feats, 1)
         return input_feats
-
+    # xt:(1,512) event:(1,1124) clip:(1,max_event_len,512) clip_mask:(1,max_event_len) state:[(1,1,512),(1,1,512)] 
     def forward(self, xt, event, clip, clip_mask, state):
-        att_size = clip.numel() // clip.size(0) // self.opt.clip_context_dim
-        att = clip.view(-1, self.opt.clip_context_dim)
+        att_size = clip.numel() // clip.size(0) // self.opt.clip_context_dim  # max_event_len
+        att = clip.view(-1, self.opt.clip_context_dim)  # (1*max_event_len,512)
 
-        att = self.ctx2att(att)  # (batch * att_size) * att_hid_size
-        att = att.view(-1, att_size, self.att_hid_size)  # batch * att_size * att_hid_size
-        att_h = self.h2att(state[0][-1])  # batch * att_hid_size
-        att_h = att_h.unsqueeze(1).expand_as(att)  # batch * att_size * att_hid_size
-        dot = att + att_h  # batch * att_size * att_hid_size
-        dot = torch.tanh(dot)  # batch * att_size * att_hid_size
-        dot = dot.view(-1, self.att_hid_size)  # (batch * att_size) * att_hid_size
-        dot = self.alpha_net(dot)  # (batch * att_size) * 1
-        dot = dot.view(-1, att_size)  # batch * att_size
+        att = self.ctx2att(att)  # (max_event_len,512)
+        att = att.view(-1, att_size, self.att_hid_size)  # (1, max_event_len,512)
+        
+        att_h = self.h2att(state[0][-1])  # (1,512)
+        att_h = att_h.unsqueeze(1).expand_as(att)  # (1, max_event_len,512)
+        dot = att + att_h  # (1, max_event_len,512)
+        dot = torch.tanh(dot)  # (1, max_event_len,512)
+        dot = dot.view(-1, self.att_hid_size) # (1*max_event_len,512)
+        dot = self.alpha_net(dot)  # (1*max_event_len,1)
+        dot = dot.view(-1, att_size)  # (1, max_event_len)
 
-        weight = F.softmax(dot, dim=1)
-        if clip_mask is not None:
-            weight = weight * clip_mask.view(-1, att_size).float()
-            weight = weight / (weight.sum(1, keepdim=True) + 1e-6)
+        weight = F.softmax(dot, dim=1)  # (1, max_event_len)
+        if clip_mask is not None: 
+            weight = weight * clip_mask.view(-1, att_size).float()  # (1, max_event_len)
+            weight = weight / (weight.sum(1, keepdim=True) + 1e-6)  # (1, max_event_len)
 
-        att_feats_ = clip.view(-1, att_size, self.att_feat_size)  # batch * att_size * att_feat_size
-        att_res = torch.bmm(weight.unsqueeze(1), att_feats_).squeeze(1)  # batch * att_feat_size
+        att_feats_ = clip.view(-1, att_size, self.att_feat_size)  # (1, max_event_len, 512)
+        att_res = torch.bmm(weight.unsqueeze(1), att_feats_).squeeze(1)  # (1, 512)
 
         input_feats = self.get_input_feats(event, att_res)
         output, state = self.rnn(torch.cat([xt, input_feats], 1).unsqueeze(0), state)
