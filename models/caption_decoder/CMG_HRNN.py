@@ -135,8 +135,8 @@ class CMG_HRNN(nn.Module):
                     # break if all the sequences end
                 if i >= 1 and seq_idx[:, i].data.sum() == 0:
                     break
-                # event_idx:(1,1124)  clip_idx:(1,max_event_len,512) clip_mask_idx:(1,max_event_len) state:[]
-                output, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)
+                # event_idx:(1,1124)  clip_idx:(1,max_event_len,512) clip_mask_idx:(1,max_event_len) state:[(1,1,512),(1,1,512)]
+                output, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)  # output:(1,512) state:[(1,1,512),(1,1,512)]
 
                 interest = (seq_len_idx == i + 2)
 
@@ -144,20 +144,20 @@ class CMG_HRNN(nn.Module):
                     end_id = interest.nonzero().squeeze(1)
                     last_sent_state[end_id] = state[0][
                         -1, end_id]  # state[0].shape = (num_layer, batch_size, rnn_size))
-                outputs.append(output)  # output: (batch, vocab_size+1); outputs: ( cap_seq_len, batch, vocab_size+1 )
+                outputs.append(output)  # output: (batch, vocab_size+1); outputs: (cap_seq_len, batch, vocab_size+1 )
             para_outputs.append(
-                torch.stack(outputs, 0))  # para_outputs: ( esqn_len, cap_seq_len, batch, self.vocab_size + 1 )
-
+                torch.stack(outputs, 0))  # para_outputs: (Prop_N, cap_seq_len, 1, 5748)
+        ###### 将para_outputs放入固定大小的tensor中 ######
         para_output_tensor = clip.new_zeros(self.opt.batch_size, eseq_len, seq.size(1) - 1, eseq_num,
-                                            self.vocab_size + 1)
-        para_output_tensor = para_output_tensor.squeeze(0)
+                                            self.vocab_size + 1)  # (1,Prop_N, max_sent_len, 1, 5748)
+        para_output_tensor = para_output_tensor.squeeze(0)  # (Prop_N, max_sent_len, 1, 5748)
 
         for i in range(para_output_tensor.shape[0]):
             para_output_tensor[i, :len(para_outputs[i])] = para_outputs[i]
         para_output_tensor = para_output_tensor.permute(2, 0, 1,
-                                                        3)  # (batchsize, esqn_len, cap_seq_len, self.vocab_size+1)
+                                                        3)  # (1,Prop_N,max_sent_len,5748)
 
-        return para_output_tensor
+        return para_output_tensor  # (1, Prop_N,max_sent_len-1, 5748)
 
     def get_logprobs_state(self, it, event, clip, clip_mask, state):
         xt = self.embed(it)  # (1,512)
@@ -264,7 +264,7 @@ class CMG_HRNN(nn.Module):
         para_seq_tensor = para_seq_tensor.permute(2, 0, 1)
         return para_seq_tensor, para_seqLogprobs_tensor
 
-
+####  RNN的一个时间步运算 ########
 class ShowAttendTellCore(nn.Module):
 
     def __init__(self, opt):
@@ -303,11 +303,11 @@ class ShowAttendTellCore(nn.Module):
             dim += self.opt.clip_context_dim
         return dim
 
-    def get_input_feats(self, event, att_clip):
+    def get_input_feats(self, event, att_clip):  # event:(1,1124)  att_clip:(1,512)
         input_feats = []
         if 'E' in self.wordRNN_input_feats_type:
             input_feats.append(event)
-        if 'C' in self.wordRNN_input_feats_type:
+        if 'C' in self.wordRNN_input_feats_type:  # wordRNN_input_feats_type='C'
             input_feats.append(att_clip)
 
         input_feats = torch.cat(input_feats, 1)
@@ -336,9 +336,9 @@ class ShowAttendTellCore(nn.Module):
         att_feats_ = clip.view(-1, att_size, self.att_feat_size)  # (1, max_event_len, 512)
         att_res = torch.bmm(weight.unsqueeze(1), att_feats_).squeeze(1)  # (1, 512)
 
-        input_feats = self.get_input_feats(event, att_res)
-        output, state = self.rnn(torch.cat([xt, input_feats], 1).unsqueeze(0), state)
-        return output.squeeze(0), state
+        input_feats = self.get_input_feats(event, att_res)  #(1,512)
+        output, state = self.rnn(torch.cat([xt, input_feats], 1).unsqueeze(0), state)  # output:(1,1,512)  state:[(1,1,512),(1,1,512)]
+        return output.squeeze(0), state   # (1,512), [(1,1,512),(1,1,512)]
 
 
 # CMG_HRNN在这里是父类
