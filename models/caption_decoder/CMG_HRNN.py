@@ -44,8 +44,8 @@ class CMG_HRNN(nn.Module):
         self.logit.bias.data.fill_(0)
         self.logit.weight.data.uniform_(-initrange, initrange)
 
-    def init_hidden(self, batch_size):
-        weight = next(self.parameters()).data
+    def init_hidden(self, batch_size):  # batch_size:1
+        weight = next(self.parameters()).data  # (5748,512)
         return (weight.new(self.num_layers, batch_size, self.rnn_size).zero_(),
                 weight.new(self.num_layers, batch_size, self.rnn_size).zero_())  # (h0, c0)
 
@@ -68,13 +68,16 @@ class CMG_HRNN(nn.Module):
         output = torch.sum(output) / (torch.sum(mask) + 1e-6)
         return output
 
+    ### 解码时先进行CMG_HRNN的前向传播
+     # event(TSRM): (Prop_N,1124)  clip:(Prop_N, max_event_len, 512)  clip_mask: (Prop_N, max_event_len, 512)
+     # dt['cap_tensor'][cap_big_ids]: (Prop_N,max_sent_length)  event_seq_idx:[0,1,2,...,Prop_N]  event_feat_expand_flag = 1
     def forward(self, event, clip, clip_mask, seq, event_seq_idx, event_feat_expand=False):
         # TODO: annotation
-        eseq_num, eseq_len = event_seq_idx.shape
-        para_state = self.init_hidden(eseq_num)  # return Zero hidden state
-        last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)  # return Zero hidden state
+        eseq_num, eseq_len = event_seq_idx.shape  # (1,Prop_N)
+        para_state = self.init_hidden(eseq_num)  # return Zero hidden state  (1,1,512)  (1,1,512)
+        last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)  # return Zero hidden state  (1,512)
         para_outputs = []
-        seq = seq.long()
+        seq = seq.long()  # 转为torch.int64类型
 
         if event is None:
             event = (clip * clip_mask.unsqueeze(2)).sum(1) / (clip_mask.sum(1, keepdims=True) + 1e-5)
@@ -82,14 +85,15 @@ class CMG_HRNN(nn.Module):
         if not event_feat_expand:
             assert len(event.shape) == 2
         else:
-            event = event.reshape(eseq_num, eseq_len, event.shape[-1])
+            event = event.reshape(eseq_num, eseq_len, event.shape[-1])  # (1,Prop_N,1124)
 
+        ###  遍历每一个提议 ######
         for idx in range(eseq_len):
 
-            event_idx = event[event_seq_idx[:, idx]] if not event_feat_expand else event[:, idx]
-            clip_idx = clip[event_seq_idx[:, idx]]
-            clip_mask_idx = clip_mask[event_seq_idx[:, idx]]
-            seq_idx = seq[event_seq_idx[:, idx]]
+            event_idx = event[event_seq_idx[:, idx]] if not event_feat_expand else event[:, idx]  # (1,1124)
+            clip_idx = clip[event_seq_idx[:, idx]]   # (1,max_event_len,512)
+            clip_mask_idx = clip_mask[event_seq_idx[:, idx]]    # (1,max_event_len)
+            seq_idx = seq[event_seq_idx[:, idx]]  # (1,max_seq_len)
 
             # cross-modal fusion
             # last_sent_state: linguistic information of previous events
@@ -161,6 +165,7 @@ class CMG_HRNN(nn.Module):
         logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)
         return logprobs, state
 
+    ##### sample是使用强化训练的时候使用的 #####
     def sample(self, event, clip, clip_mask, event_seq_idx, event_feat_expand=False, opt={}):
 
         sample_max = opt.get('sample_max', 1)
