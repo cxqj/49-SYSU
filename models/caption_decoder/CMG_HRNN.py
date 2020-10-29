@@ -95,17 +95,21 @@ class CMG_HRNN(nn.Module):
             clip_mask_idx = clip_mask[event_seq_idx[:, idx]]    # (1,max_event_len)
             seq_idx = seq[event_seq_idx[:, idx]]  # (1,max_seq_len)
 
+            ##########################   计算初始state状态信息   ############################
             # cross-modal fusion
             # last_sent_state: linguistic information of previous events
             # event_idx: visual information of previous events
-            prev_state_proj = self.global_proj(last_sent_state)  # (1,152)-->(1,512)
-            event_proj = self.local_proj(event_idx)  # (1,1124)-->(1,512)
-            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)  # (1,1536)
+            prev_state_proj = self.global_proj(last_sent_state)  # (1,152)-->(1,512)  上一个句子的整体隐状态信息
+            event_proj = self.local_proj(event_idx)  # (1,1124)-->(1,512)   事件上下文信息
+            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)  # (1,1536)   para_state为单词特征，prev_state_proj为上一个提议的整体句子特征，event_proj为事件上下文信息 
             gate = self.gate_layer(self.gate_drop(gate_input))  # (1,1536)-->(1,512)
             gate = torch.cat((gate, 1 - gate), dim=1)  #(1,1024)
-            sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)  # (1,1024)
+            """
+             we propose a cross modal gating (CMG) block to adaptively balance the visualand linguistic information.
+            """
+            sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)  # (1,1024)  # 注意计算gate的时候控制的是语句和视觉特征的输入比例
             sent_rnn_input = sent_rnn_input * gate  # (1,1024)
-            _, para_state = self.sent_rnn(sent_rnn_input.unsqueeze(0), para_state)
+            _, para_state = self.sent_rnn(sent_rnn_input.unsqueeze(0), para_state)  # para_state中保存的是senRNN的状态
 
             para_c, para_h = para_state  # (1,1,512), (1,1,512)
             num_layers, batch_size, para_dim = para_h.size()  # 1, 1, 512
@@ -116,7 +120,7 @@ class CMG_HRNN(nn.Module):
             seq_len_idx = (seq_idx > 0).sum(1) + 2  # 当前语句的真实长度
 
             last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)   # (1,512)
-
+            ########################   依次计算当前步输出   ###############################
             for i in range(seq_idx.size(1) - 1):
                 if self.training and i >= 1 and self.ss_prob > 0.0:  # otherwiste no need to sample
                     sample_prob = clip.new(eseq_num).uniform_(0, 1)
@@ -136,7 +140,7 @@ class CMG_HRNN(nn.Module):
                 if i >= 1 and seq_idx[:, i].data.sum() == 0:
                     break
                 # event_idx:(1,1124)  clip_idx:(1,max_event_len,512) clip_mask_idx:(1,max_event_len) state:[(1,1,512),(1,1,512)]
-                output, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)  # output:(1,512) state:[(1,1,512),(1,1,512)]
+                output, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)  # output:(1,5748) state:[(1,1,512),(1,1,512)]
 
                 interest = (seq_len_idx == i + 2)
 
@@ -162,7 +166,7 @@ class CMG_HRNN(nn.Module):
     def get_logprobs_state(self, it, event, clip, clip_mask, state):
         xt = self.embed(it)  # (1,512)
         # 这里调用了ShowAttendTellCore的forward函数
-        output, state = self.core(xt, event, clip, clip_mask, state)  # 
+        output, state = self.core(xt, event, clip, clip_mask, state)  # (1,512), [(1,1,512),(1,1,512)]
         logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)  
         return logprobs, state
 
@@ -313,15 +317,20 @@ class ShowAttendTellCore(nn.Module):
         input_feats = torch.cat(input_feats, 1)
         return input_feats
     # xt:(1,512) event:(1,1124) clip:(1,max_event_len,512) clip_mask:(1,max_event_len) state:[(1,1,512),(1,1,512)] 
+    ##### 这里主要是计算clip特征和state的关系，相当于关注clip特征中和state关系比较高的部分 ########
     def forward(self, xt, event, clip, clip_mask, state):
         att_size = clip.numel() // clip.size(0) // self.opt.clip_context_dim  # max_event_len
+        
+        #### 通过clip计算得到的attn值 #####
         att = clip.view(-1, self.opt.clip_context_dim)  # (1*max_event_len,512)
 
         att = self.ctx2att(att)  # (max_event_len,512)
         att = att.view(-1, att_size, self.att_hid_size)  # (1, max_event_len,512)
         
+        #### 通过state计算得到的attn值 #####
         att_h = self.h2att(state[0][-1])  # (1,512)
         att_h = att_h.unsqueeze(1).expand_as(att)  # (1, max_event_len,512)
+        
         dot = att + att_h  # (1, max_event_len,512)
         dot = torch.tanh(dot)  # (1, max_event_len,512)
         dot = dot.view(-1, self.att_hid_size) # (1*max_event_len,512)
@@ -336,7 +345,7 @@ class ShowAttendTellCore(nn.Module):
         att_feats_ = clip.view(-1, att_size, self.att_feat_size)  # (1, max_event_len, 512)
         att_res = torch.bmm(weight.unsqueeze(1), att_feats_).squeeze(1)  # (1, 512)
 
-        input_feats = self.get_input_feats(event, att_res)  #(1,512)
+        input_feats = self.get_input_feats(event, att_res)  #(1,512)   是否还需要event特征
         output, state = self.rnn(torch.cat([xt, input_feats], 1).unsqueeze(0), state)  # output:(1,1,512)  state:[(1,1,512),(1,1,512)]
         return output.squeeze(0), state   # (1,512), [(1,1,512),(1,1,512)]
 
