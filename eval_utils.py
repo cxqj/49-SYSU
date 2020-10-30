@@ -119,9 +119,9 @@ def evaluate(model, loader, dvc_json_path, tap_json_path, score_threshold=0.1, n
                 dt['lnt_event_seq_idx'] = [np.arange(caption_nums[i])[np.newaxis, :] for i in range(len(caption_nums))]  #  [0,1]
                 dt['lnt_gt_idx'] = gather_idx
                 FIRST_DIM = 0
-                seq, cap_prob = model.forward_hrnn(dt, mode='eval')
-                seq = seq[FIRST_DIM]
-                cap_prob = cap_prob[FIRST_DIM]
+                seq, cap_prob = model.forward_hrnn(dt, mode='eval')  # (batch_size, Prop_N, max_pred_sent_length), (batch_size, Prop_N, max_pred_sent_length)
+                seq = seq[FIRST_DIM]    # (Prop_N, max_pred_sent_length)
+                cap_prob = cap_prob[FIRST_DIM]   # (Prop_N, max_pred_sent_length)
             else:
                 dt['lnt_gt_idx'] = gather_idx
                 dt['lnt_event_seq_idx'] = [np.arange(caption_nums[i])[np.newaxis, :] for i in range(len(caption_nums))]
