@@ -110,8 +110,8 @@ class EncoderDecoder(nn.Module):
         elif mode == 'eval':
             with torch.no_grad():
                 seq, cap_prob = self.caption_decoder.sample(event, clip, clip_mask, event_seq_idx,
-                                                           event_feat_expand_flag)
-            return seq, cap_prob
+                                                           event_feat_expand_flag)  
+            return seq, cap_prob  # (batch_size, Prop_N, max_pred_sent_length), (batch_size, Prop_N, max_pred_sent_length)
 
         else:
             raise AssertionError
