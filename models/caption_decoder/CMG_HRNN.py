@@ -183,7 +183,8 @@ class CMG_HRNN(nn.Module):
     ##### sample是评估和强化训练的时候使用的 #####
     def sample(self, event, clip, clip_mask, event_seq_idx, event_feat_expand=False, opt={}):
         # event:(Prop_N,1124) clip:(Prop_N,max_event_len,512) clip_mask:(Prop_N, max_event_len)  event_seq_idx:(1,Prop_N)
-        sample_max = opt.get('sample_max', 1)  # 1
+        # event_feat_expand = True
+        sample_max = opt.get('sample_max', 1)  # 1  贪心法生成句子，不使用集束搜索
         temperature = opt.get('temperature', 1.0)  # 1.0
 
         eseq_num, eseq_len = event_seq_idx.shape  # 1, Prop_N
@@ -226,7 +227,7 @@ class CMG_HRNN(nn.Module):
 
             for t in range(self.max_caption_len + 1):
                 if t == 0:  # input <bos>
-                    it = clip.new_zeros(eseq_num).long()
+                    it = clip.new_zeros(eseq_num).long()  # 初始单词
                 elif sample_max:
                     sampleLogprobs, it = torch.max(logprobs.data, 1)
                     it = it.view(-1).long()
@@ -283,7 +284,7 @@ class CMG_HRNN(nn.Module):
 The word RNN is implemented
 as an attention-enhanced RNN, which adaptively select the
 salient frames within the proposal pi for word prediction.
-相当于选取Prop feat中当前单词关系度高的部分
+相当于选取clip特征中和state关系度高的部分
 """
 class ShowAttendTellCore(nn.Module):
 
@@ -332,7 +333,7 @@ class ShowAttendTellCore(nn.Module):
 
         input_feats = torch.cat(input_feats, 1)
         return input_feats
-    # xt:(1,512) event:(1,1124) clip:(1,max_event_len,512) clip_mask:(1,max_event_len) state:[(1,1,512),(1,1,512)] 
+    # xt:(1,512) event:(1,1124) clip:(1,max_event_len,512) clip_mask:(1,max_event_len) state:[(1,1,512),(1,1,512)]，其中state中第一个为cell state,第二个是hidden state
     ##### 这里主要是计算clip特征和state的关系，相当于关注clip特征中和state关系比较高的部分 ########
     """
     The word RNN is implemented
