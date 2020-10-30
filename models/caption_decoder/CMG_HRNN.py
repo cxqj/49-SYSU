@@ -167,8 +167,8 @@ class CMG_HRNN(nn.Module):
         xt = self.embed(it)  # (1,512)
         # 这里调用了ShowAttendTellCore的forward函数
         output, state = self.core(xt, event, clip, clip_mask, state)  # (1,512), [(1,1,512),(1,1,512)]
-        logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)  
-        return logprobs, state
+        logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)  # (1,512)-->(1,5748) 
+        return logprobs, state  # (1,5748)  [(1,1,512),(1,1,512)]
 
     ##### sample是评估和强化训练的时候使用的 #####
     def sample(self, event, clip, clip_mask, event_seq_idx, event_feat_expand=False, opt={}):
@@ -231,13 +231,13 @@ class CMG_HRNN(nn.Module):
                                                                  requires_grad=False))  # gather the logprobs at sampled positions
                     it = it.view(-1).long()  # and flatten indices for downstream processing
 
-                logprobs, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)
+                logprobs, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)   # (1,5748)  [(1,1,512),(1,1,512)] 
 
                 if t >= 1:
                     # stop when all finished
                     if t == 1:
-                        unfinished = it > 0
-                        interest = ~unfinished
+                        unfinished = it > 0     # it>0表示句子还没结束
+                        interest = ~unfinished  # interest啥意思？
                     else:
                         new_unfinished = unfinished & (it > 0)
                         interest = new_unfinished ^ unfinished
@@ -257,16 +257,16 @@ class CMG_HRNN(nn.Module):
             para_seqLogprobs.append(torch.stack(seqLogprobs, 0))  # para_seqLogprobs: (eseq_len, seq_len, batch_size)
             para_seq.append(torch.stack(seq, 0))  # para_seq： (eseq_len, seq_len, batch_size)
 
-        max_len = max([p.shape[0] for p in para_seqLogprobs])
-        para_seqLogprobs_tensor = clip.new_zeros(eseq_len, max_len, eseq_num)
-        para_seq_tensor = clip.new_zeros(eseq_len, max_len, eseq_num).int()
+        max_len = max([p.shape[0] for p in para_seqLogprobs])  # max_pred_sent_len
+        para_seqLogprobs_tensor = clip.new_zeros(eseq_len, max_len, eseq_num)   # (Prop_N, max_pred_sent_length, batch_size)
+        para_seq_tensor = clip.new_zeros(eseq_len, max_len, eseq_num).int() # (Prop_N, max_pred_sent_length, batch_size)
 
         for i in range(para_seq_tensor.shape[0]):
             para_seqLogprobs_tensor[i, :len(para_seqLogprobs[i])] = para_seqLogprobs[i]
             para_seq_tensor[i, :len(para_seq[i])] = para_seq[i]
         para_seqLogprobs_tensor = para_seqLogprobs_tensor.permute(2, 0, 1)
         para_seq_tensor = para_seq_tensor.permute(2, 0, 1)
-        return para_seq_tensor, para_seqLogprobs_tensor
+        return para_seq_tensor, para_seqLogprobs_tensor # (batch_size, Prop_N, max_pred_sent_length), (batch_size, Prop_N, max_pred_sent_length)
 
 ####  RNN的一个时间步运算 ########
 class ShowAttendTellCore(nn.Module):
