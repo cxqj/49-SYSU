@@ -208,3 +208,4 @@ def get_caption_reward(greedy_res, gt_captions, gen_result, opt):
 
     return rewards, scores[:batch_size], scores[batch_size:]
 
+
