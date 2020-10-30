@@ -216,7 +216,7 @@ def train(opt):
         # evaluation
         if (epoch % opt.save_checkpoint_every == 0) and (epoch >= opt.min_epoch_when_save) and (epoch != 0):
             model.eval()
-
+            # 保存dense_video_caption结果的文件
             dvc_json_path = os.path.join(save_folder, 'prediction',
                                          'num{}_epoch{}_score{}_nms{}_top{}.json'.format(
                                              len(val_dataset), epoch, opt.eval_score_threshold,
