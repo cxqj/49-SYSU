@@ -149,7 +149,7 @@ def train(opt):
                 model.caption_decoder.ss_prob = opt.ss_prob
 
             # self critical learning flag
-            if opt.self_critical_after != -1 and epoch >= opt.self_critical_after:   # self_critical = -1
+            if opt.self_critical_after != -1 and epoch >= opt.self_critical_after:   # 当使用强化学习方式训练时self_critical_after = 0
                 sc_flag = True
                 init_scorer()
                 model.caption_decoder.ss_prob = 0
