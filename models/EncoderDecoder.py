@@ -70,7 +70,7 @@ class EncoderDecoder(nn.Module):
         # Event Encoder, (Prop_N,1124), (Prop_N, max_event_len, 512), (Prop_N, max_event_len)
         event, clip, clip_mask = self.get_features(dt, dt['lnt_featstamps'])   # 对应着论文中的TSRM  
 
-        event_feat_expand_flag = self.event_encoder_type in ['tsrm']
+        event_feat_expand_flag = self.event_encoder_type in ['tsrm']  # 是否添加上下文TSRM特征
 
         if mode == 'train':
             # event(TSRM): (Prop_N,1124)  clip:(Prop_N, max_event_len, 512)  clip_mask: (Prop_N, max_event_len, 512)
