@@ -318,6 +318,11 @@ class ShowAttendTellCore(nn.Module):
         return input_feats
     # xt:(1,512) event:(1,1124) clip:(1,max_event_len,512) clip_mask:(1,max_event_len) state:[(1,1,512),(1,1,512)] 
     ##### 这里主要是计算clip特征和state的关系，相当于关注clip特征中和state关系比较高的部分 ########
+    """
+    The word RNN is implemented
+    as an attention-enhanced RNN, which adaptively select the
+    salient frames within the proposal pi for word prediction 
+    """
     def forward(self, xt, event, clip, clip_mask, state):
         att_size = clip.numel() // clip.size(0) // self.opt.clip_context_dim  # max_event_len
         
