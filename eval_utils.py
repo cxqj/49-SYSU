@@ -127,6 +127,7 @@ def evaluate(model, loader, dvc_json_path, tap_json_path, score_threshold=0.1, n
                 dt['lnt_event_seq_idx'] = [np.arange(caption_nums[i])[np.newaxis, :] for i in range(len(caption_nums))]
                 seq, cap_prob = model.forward_rnn(dt, mode='eval')
 
+            #### 计算caption得分，将单词索引转换为句子 #####
             if len(seq):
                 mask = (seq > 0).float()
                 cap_score = (mask * cap_prob).sum(1).cpu().numpy().astype('float')
