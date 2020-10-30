@@ -108,7 +108,9 @@ class EncoderDecoder(nn.Module):
             return caption_loss, sample_meteor, greedy_meteor
 
         elif mode == 'eval':
-            with torch.no_grad():
+            with torch.no_grad():  
+                # event:(Prop_N,1124) clip:(Prop_N, max_event_length, 512) clip_mask:(Prop_N, max_event_length)
+                # event_seq_idx: (0,1,2,...,N)  event_feat_expand_flag:True
                 seq, cap_prob = self.caption_decoder.sample(event, clip, clip_mask, event_seq_idx,
                                                            event_feat_expand_flag)  
             return seq, cap_prob  # (batch_size, Prop_N, max_pred_sent_length), (batch_size, Prop_N, max_pred_sent_length)
