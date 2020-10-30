@@ -137,9 +137,23 @@ def evaluate(model, loader, dvc_json_path, tap_json_path, score_threshold=0.1, n
                 pred_caption = [''] * len(gather_idx)
 
             # construct tap+caption json
+            """
+            info:
+               [{'segment':[0.0, 34.52],'score':1.0},
+                {'segment':[30.79,73.71],'score':1.0},
+                {'segment':[68.11,182.86],'score':1.0}]
+            """
             idx = 0
-            for video_name, info in batch_json.items():
+            for video_name, info in batch_json.items():  
                 for i, p in enumerate(info):
+                    """
+                    p:{'timestamp':[0,34.52],
+                       'proposal_score': 1.0,
+                       'proposal_id': [0,3],
+                       'sentence': 生成的句子
+                       'sentence_score': 句子得分
+                    }
+                    """
                     p['timestamp'] = p.pop('segment')
                     p['proposal_score'] = p.pop('score')
                     p['proposal_id'] = [i, len(info)]
