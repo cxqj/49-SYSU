@@ -170,16 +170,16 @@ class CMG_HRNN(nn.Module):
         logprobs = F.log_softmax(self.logit(self.dropout(output)), dim=1)  
         return logprobs, state
 
-    ##### sample是使用强化训练的时候使用的 #####
+    ##### sample是评估和强化训练的时候使用的 #####
     def sample(self, event, clip, clip_mask, event_seq_idx, event_feat_expand=False, opt={}):
+        # event:(Prop_N,1124) clip:(Prop_N,max_event_len,512) clip_mask:(Prop_N, max_event_len)  event_seq_idx:(1,Prop_N)
+        sample_max = opt.get('sample_max', 1)  # 1
+        temperature = opt.get('temperature', 1.0)  # 1.0
 
-        sample_max = opt.get('sample_max', 1)
-        temperature = opt.get('temperature', 1.0)
+        eseq_num, eseq_len = event_seq_idx.shape  # 1, Prop_N
 
-        eseq_num, eseq_len = event_seq_idx.shape
-
-        para_state = self.init_hidden(eseq_num)
-        last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)
+        para_state = self.init_hidden(eseq_num)  # [(1,1,512),(1,1,512)]
+        last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)  # (1,512)
 
         para_seqLogprobs = []
         para_seq = []
@@ -189,30 +189,30 @@ class CMG_HRNN(nn.Module):
         if not event_feat_expand:
             assert len(event.shape) == 2
         else:
-            event = event.reshape(eseq_num, eseq_len, event.shape[-1])
+            event = event.reshape(eseq_num, eseq_len, event.shape[-1])  # (1,Prop_N,1124)
 
         for idx in range(eseq_len):
-            event_idx = event[event_seq_idx[:, idx]] if not event_feat_expand else event[:, idx]
-            clip_idx = clip[event_seq_idx[:, idx]]
-            clip_mask_idx = clip_mask[event_seq_idx[:, idx]]
+            event_idx = event[event_seq_idx[:, idx]] if not event_feat_expand else event[:, idx]  # (1,1124)
+            clip_idx = clip[event_seq_idx[:, idx]]  # (1, max_event_len, 512)
+            clip_mask_idx = clip_mask[event_seq_idx[:, idx]]  # (1, max_event_len)
 
-            prev_state_proj = self.global_proj(last_sent_state)
-            event_proj = self.local_proj(event_idx)
-            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)
-            gate = self.gate_layer(self.gate_drop(gate_input))
-            gate = torch.cat((gate, 1 - gate), dim=1)
+            prev_state_proj = self.global_proj(last_sent_state)  # (1,512)-->(1,512)
+            event_proj = self.local_proj(event_idx)  # (1,1536)-->(1,512)
+            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)   # (1,1536)
+            gate = self.gate_layer(self.gate_drop(gate_input)) # (1,1536)-->(1,512)  
+            gate = torch.cat((gate, 1 - gate), dim=1)  # (1,1024)
             sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)
-            sent_rnn_input = sent_rnn_input * gate
-            _, para_state = self.sent_rnn(sent_rnn_input.unsqueeze(0), para_state)
+            sent_rnn_input = sent_rnn_input * gate  
+            _, para_state = self.sent_rnn(sent_rnn_input.unsqueeze(0), para_state)  # [(1,1,512),(1,1,512)]
 
-            para_c, para_h = para_state
-            num_layers, batch_size, para_dim = para_h.size()
-            init_h = self.para_transfer_layer(para_h[-1]).reshape(self.num_layers, batch_size, para_dim)
-            state = (init_h, init_h)
+            para_c, para_h = para_state    # (1,1,512),(1,1,512)
+            num_layers, batch_size, para_dim = para_h.size()  # 1, 1, 512
+            init_h = self.para_transfer_layer(para_h[-1]).reshape(self.num_layers, batch_size, para_dim)  # (1,1,512)
+            state = (init_h, init_h)   # [(1,1,512),(1,1,512)]
 
             seq = []
             seqLogprobs = []
-            last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)
+            last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)  # (1,512)
 
             for t in range(self.max_caption_len + 1):
                 if t == 0:  # input <bos>
