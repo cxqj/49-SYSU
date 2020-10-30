@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import *
 
+# HRNN为一个sent RNN + 一个word RNN
 class CMG_HRNN(nn.Module):
     def __init__(self, opt):
         super(CMG_HRNN, self).__init__()
@@ -11,7 +12,7 @@ class CMG_HRNN(nn.Module):
         assert opt.batch_size == 1
 
         self.vocab_size = opt.vocab_size  # 5747
-        self.input_encoding_size = opt.input_encoding_size  # 512词嵌入维度？
+        self.input_encoding_size = opt.input_encoding_size  # 512(词嵌入维度)
         self.rnn_size = opt.rnn_size  # 512
         self.num_layers = opt.num_layers  # 1
         self.drop_prob_lm = opt.drop_prob # 0.5
@@ -25,16 +26,16 @@ class CMG_HRNN(nn.Module):
                                 dropout=self.drop_prob_lm)  # 1024-->512
 
         self.gate_layer = nn.Sequential(nn.Linear(2 * opt.hidden_dim + self.rnn_size, opt.hidden_dim),
-                                        nn.Sigmoid())
+                                        nn.Sigmoid())  # 1536-->512
         self.global_proj = nn.Sequential(nn.Linear(self.sent_rnn_size, opt.hidden_dim),
-                                         nn.Tanh())
+                                         nn.Tanh())    # 512-->512
         self.local_proj = nn.Sequential(nn.Linear(opt.event_context_dim, opt.hidden_dim),
-                                        nn.Tanh())
-        self.para_transfer_layer = nn.Linear(self.sent_rnn_size, self.rnn_size * self.num_layers)
+                                        nn.Tanh())     # 1124-->512
+        self.para_transfer_layer = nn.Linear(self.sent_rnn_size, self.rnn_size * self.num_layers)  # 512-->512
 
         self.gate_drop = nn.Dropout(p=opt.drop_prob)  # 0.5
 
-        self.logit = nn.Linear(self.rnn_size, self.vocab_size + 1)  # 512-->5748
+        self.logit = nn.Linear(self.rnn_size, self.vocab_size + 1)  # 512-->5748 
         self.dropout = nn.Dropout(self.drop_prob_lm)  # 0.5
         self.init_weights()  # 初始化词嵌入和logit全连接层的参数
 
@@ -47,7 +48,7 @@ class CMG_HRNN(nn.Module):
     def init_hidden(self, batch_size):  # batch_size:1
         weight = next(self.parameters()).data  # (5748,512)
         return (weight.new(self.num_layers, batch_size, self.rnn_size).zero_(),
-                weight.new(self.num_layers, batch_size, self.rnn_size).zero_())  # (h0, c0)
+                weight.new(self.num_layers, batch_size, self.rnn_size).zero_())  # (h0, c0) [(1,1,512),(1,1,512)]
 
     def build_loss(self, input, target, mask):  # input:(Prop_N,max_sent_len-1,5748) target:(Prop_N,max_sent_len-1) mask:(Prop_N,max_sent_len-1,1)
         target = target[:, :input.size(1)]
@@ -74,8 +75,8 @@ class CMG_HRNN(nn.Module):
     def forward(self, event, clip, clip_mask, seq, event_seq_idx, event_feat_expand=False):
         # TODO: annotation
         eseq_num, eseq_len = event_seq_idx.shape  # (1,Prop_N)
-        para_state = self.init_hidden(eseq_num)  # return Zero hidden state  (1,1,512)  (1,1,512)
-        last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)  # return Zero hidden state  (1,512)
+        para_state = self.init_hidden(eseq_num)  # return Zero hidden state  (1,1,512)  (1,1,512)   word RNN state
+        last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)  # return Zero hidden state  (1,512)   sent RNN state
         para_outputs = []
         seq = seq.long()  # 转为torch.int64类型
 
@@ -98,17 +99,26 @@ class CMG_HRNN(nn.Module):
             ##########################   计算初始state状态信息   ############################
             # cross-modal fusion
             # last_sent_state: linguistic information of previous events
-            # event_idx: visual information of previous events
+            # event_idx: visual information of previous events  (event idx = weighted_event_feature + event_feats_expand + positional_feature_vector )
             prev_state_proj = self.global_proj(last_sent_state)  # (1,152)-->(1,512)  上一个句子的整体隐状态信息
             event_proj = self.local_proj(event_idx)  # (1,1124)-->(1,512)   事件上下文信息
-            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)  # (1,1536)   para_state为单词特征，prev_state_proj为上一个提议的整体句子特征，event_proj为事件上下文信息 
+            """
+             1) the position embedding li of proposal pi (event_proj)
+             2) the proposal’s feature vector zi,which is the concatenation of the output of TSRM module and the mean pooling of the frame-level features within pi, (event_proj)
+             3) the last hidden state sii1 in the word RNN of the previous sentence, and  (para_state[0][-1])
+             4) the previous hidden state hii1 of the  sentence RNN.  (prev_state_proj)
+            
+            """
+            gate_input = torch.cat((para_state[0][-1], prev_state_proj, event_proj), 1)  # (1,1536)   para_state为word RNN隐状态，prev_state_proj为上一个提议的整体句子特征，event_proj为事件上下文信息 
             gate = self.gate_layer(self.gate_drop(gate_input))  # (1,1536)-->(1,512)
-            gate = torch.cat((gate, 1 - gate), dim=1)  #(1,1024)
+            gate = torch.cat((gate, 1 - gate), dim=1)  #(1,1024)  gate control visual information, 1-gate control linguistic information
             """
-             we propose a cross modal gating (CMG) block to adaptively balance the visualand linguistic information.
+             we propose a cross modal gating (CMG) block to adaptively balance the visual and linguistic information of sent RNN.
             """
-            sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)  # (1,1024)  # 注意计算gate的时候控制的是语句和视觉特征的输入比例
+            sent_rnn_input = torch.cat((prev_state_proj, event_proj), dim=1)  # (1,1024) prev_state_proj对应linguistic info, event_proj对应visual info
             sent_rnn_input = sent_rnn_input * gate  # (1,1024)
+            
+            ###### 使用sent RNN ###########
             _, para_state = self.sent_rnn(sent_rnn_input.unsqueeze(0), para_state)  # para_state中保存的是senRNN的状态
 
             para_c, para_h = para_state  # (1,1,512), (1,1,512)
@@ -120,7 +130,7 @@ class CMG_HRNN(nn.Module):
             seq_len_idx = (seq_idx > 0).sum(1) + 2  # 当前语句的真实长度
 
             last_sent_state = clip.new_zeros(eseq_num, self.rnn_size)   # (1,512)
-            ########################   依次计算当前步输出   ###############################
+            ########################   使用word RNN   ###############################
             for i in range(seq_idx.size(1) - 1):
                 if self.training and i >= 1 and self.ss_prob > 0.0:  # otherwiste no need to sample
                     sample_prob = clip.new(eseq_num).uniform_(0, 1)
@@ -161,7 +171,7 @@ class CMG_HRNN(nn.Module):
         para_output_tensor = para_output_tensor.permute(2, 0, 1,
                                                         3)  # (1,Prop_N,max_sent_len,5748)
 
-        return para_output_tensor  # (1, Prop_N,max_sent_len-1, 5748)
+        return para_output_tensor  # (1, Prop_N, max_sent_len-1, 5748)
 
     def get_logprobs_state(self, it, event, clip, clip_mask, state):
         xt = self.embed(it)  # (1,512)
@@ -268,7 +278,13 @@ class CMG_HRNN(nn.Module):
         para_seq_tensor = para_seq_tensor.permute(2, 0, 1)
         return para_seq_tensor, para_seqLogprobs_tensor # (batch_size, Prop_N, max_pred_sent_length), (batch_size, Prop_N, max_pred_sent_length)
 
-####  RNN的一个时间步运算 ########
+####  word RNN ########
+"""
+The word RNN is implemented
+as an attention-enhanced RNN, which adaptively select the
+salient frames within the proposal pi for word prediction.
+相当于选取Prop feat中当前单词关系度高的部分
+"""
 class ShowAttendTellCore(nn.Module):
 
     def __init__(self, opt):
@@ -280,12 +296,12 @@ class ShowAttendTellCore(nn.Module):
         self.drop_prob_lm = opt.drop_prob # 0.5
         # self.fc_feat_size = opt.fc_feat_size
         self.att_feat_size = opt.clip_context_dim  # 512
-        self.att_hid_size = opt.att_hid_size  # 512
+        self.att_hid_size = opt.att_hid_size       # 512
 
         self.opt = opt
         self.wordRNN_input_feats_type = opt.wordRNN_input_feats_type  # 'C'
         self.input_dim = self.decide_input_feats_dim()  # 512
-
+        # word RNN
         self.rnn = nn.LSTM(self.input_encoding_size + self.input_dim,
                                                       self.rnn_size, self.num_layers, bias=False,
                                                       dropout=self.drop_prob_lm)   # 1024-->512
@@ -323,7 +339,7 @@ class ShowAttendTellCore(nn.Module):
     as an attention-enhanced RNN, which adaptively select the
     salient frames within the proposal pi for word prediction 
     """
-    def forward(self, xt, event, clip, clip_mask, state):
+    def forward(self, xt, event, clip, clip_mask, state):  # event的特征在这里没有用到
         att_size = clip.numel() // clip.size(0) // self.opt.clip_context_dim  # max_event_len
         
         #### 通过clip计算得到的attn值 #####
@@ -350,7 +366,7 @@ class ShowAttendTellCore(nn.Module):
         att_feats_ = clip.view(-1, att_size, self.att_feat_size)  # (1, max_event_len, 512)
         att_res = torch.bmm(weight.unsqueeze(1), att_feats_).squeeze(1)  # (1, 512)
 
-        input_feats = self.get_input_feats(event, att_res)  #(1,512)   是否还需要event特征
+        input_feats = self.get_input_feats(event, att_res)  #(1,512)   event特征的特征并没有用到
         output, state = self.rnn(torch.cat([xt, input_feats], 1).unsqueeze(0), state)  # output:(1,1,512)  state:[(1,1,512),(1,1,512)]
         return output.squeeze(0), state   # (1,512), [(1,1,512),(1,1,512)]
 
