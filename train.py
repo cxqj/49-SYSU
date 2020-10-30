@@ -221,6 +221,7 @@ def train(opt):
                                          'num{}_epoch{}_score{}_nms{}_top{}.json'.format(
                                              len(val_dataset), epoch, opt.eval_score_threshold,
                                              opt.eval_nms_threshold, opt.eval_top_n))  # eval_score_thresh:0.0 eval_nms_thresh:1 eval_top_n: 100
+            
             eval_score = evaluate(model, val_loader, dvc_json_path, './data/captiondata/val_1_for_tap.json',
                                   opt.eval_score_threshold, opt.eval_nms_threshold,
                                   opt.eval_top_n, logger=logger)  # eval_score_threshhold:0.0  eval_nms_threshhold:1  eval_top_n: 100
