@@ -130,8 +130,8 @@ def evaluate(model, loader, dvc_json_path, tap_json_path, score_threshold=0.1, n
             if len(seq):
                 mask = (seq > 0).float()
                 cap_score = (mask * cap_prob).sum(1).cpu().numpy().astype('float')
-                seq = seq.detach().cpu().numpy().astype('int')  # (eseq_batch_size, eseq_len, cap_len)
-                pred_caption = [loader.dataset.rtranslate(s) for s in seq]
+                seq = seq.detach().cpu().numpy().astype('int')  # (eseq_len, cap_len)
+                pred_caption = [loader.dataset.rtranslate(s) for s in seq]  # 转换为句子
             else:
                 cap_score = [-1e5] * len(gather_idx)
                 pred_caption = [''] * len(gather_idx)
