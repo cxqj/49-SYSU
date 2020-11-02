@@ -60,13 +60,14 @@ class CMG_HRNN(nn.Module):
         output = torch.sum(output) / (torch.sum(mask) + 1e-6)  # 8.76
         return output
 
-    def build_rl_loss(self, input, seq, reward):
-        input = (input).reshape(-1)
-        reward = (reward).reshape(-1)
-        mask = (seq > 0).float()
+    #### 强化学习Loss
+    def build_rl_loss(self, input, seq, reward):   # input = seq = reward = (Prob_N, Caption_Len)
+        input = (input).reshape(-1)    # Prob_N X Caption_Len
+        reward = (reward).reshape(-1)  # Prob_N X Caption_Len
+        mask = (seq > 0).float()  
         mask = (torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1)).view(-1)
         output = - input * reward * mask
-        output = torch.sum(output) / (torch.sum(mask) + 1e-6)
+        output = torch.sum(output) / (torch.sum(mask) + 1e-6) 
         return output
 
     ### 解码时先进行CMG_HRNN的前向传播
@@ -184,7 +185,7 @@ class CMG_HRNN(nn.Module):
     def sample(self, event, clip, clip_mask, event_seq_idx, event_feat_expand=False, opt={}):
         # event:(Prop_N,1124) clip:(Prop_N,max_event_len,512) clip_mask:(Prop_N, max_event_len)  event_seq_idx:(1,Prop_N)
         # event_feat_expand = True
-        sample_max = opt.get('sample_max', 1)  # 1  贪心法生成句子，不使用集束搜索
+        sample_max = opt.get('sample_max', 1)  # 1  使用交叉熵训练时使用贪心法训练(置为1)，使用强化学习方式训练时为解决接触偏差问题(置为0)
         temperature = opt.get('temperature', 1.0)  # 1.0
 
         eseq_num, eseq_len = event_seq_idx.shape  # 1, Prop_N
@@ -228,18 +229,28 @@ class CMG_HRNN(nn.Module):
             for t in range(self.max_caption_len + 1):
                 if t == 0:  # input <bos>
                     it = clip.new_zeros(eseq_num).long()  # 初始单词
-                elif sample_max:
+                elif sample_max:  # 使用交叉熵训练时采用贪心法采样
                     sampleLogprobs, it = torch.max(logprobs.data, 1)
                     it = it.view(-1).long()
-                else:
+                """
+                Afterwards, to address the exposure bias problem and boost the performance, we continually train 
+                the model by self-critical sequence training (SCST) [5] based on learnt event sequences.   
+                """
+                else:   
                     if temperature == 1.0:
                         prob_prev = torch.exp(logprobs.data)  # fetch prev distribution: shape Nx(M+1)
                     else:
                         # scale logprobs by temperature
                         prob_prev = torch.exp(torch.div(logprobs.data, temperature))
-                    it = torch.multinomial(prob_prev, 1)
+                    """
+                    在Word2vec中使用到了非相关数据的降采样方法, 其中用到了torch.multinomial方法, 这里记录一下:
+                         multinomial(input, num_samples, replacement=False)
+                    该方法主要有三个参数, 分别是输入的张量, 采样的个数, 是否有重复的数据, 采样的时候是根据输入张量的数值当做权重来进行抽样的, 数值越大, 
+                    抽到的可能性越大, 越小抽到的可能性越小, 如果是0 则不会抽到  
+                    """
+                    it = torch.multinomial(prob_prev, 1)   # 随机采样一个单词
                     sampleLogprobs = logprobs.gather(1, Variable(it,
-                                                                 requires_grad=False))  # gather the logprobs at sampled positions
+                                                                 requires_grad=False))  # gather the logprobs at sampled positions  获取单词对应的概率
                     it = it.view(-1).long()  # and flatten indices for downstream processing
 
                 logprobs, state = self.get_logprobs_state(it, event_idx, clip_idx, clip_mask_idx, state)   # (1,5748)  [(1,1,512),(1,1,512)] 
