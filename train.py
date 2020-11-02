@@ -179,9 +179,9 @@ def train(opt):
                 train_mode = 'train_rl' if sc_flag else 'train'   # train_rl是以强化学习的方式进行训练
 
                 loss, sample_score, greedy_score = model(dt, mode=train_mode, loader=train_loader)
-                loss_sum[0] = loss_sum[0] + loss.item()  # loss
-                loss_sum[1] = loss_sum[1] + sample_score.mean().item()    # sample_score
-                loss_sum[2] = loss_sum[2] + greedy_score.mean().item()    # greedy_score
+                loss_sum[0] = loss_sum[0] + loss.item()  # store loss
+                loss_sum[1] = loss_sum[1] + sample_score.mean().item()    # store sample_score
+                loss_sum[2] = loss_sum[2] + greedy_score.mean().item()    # store greedy_score
 
                 loss.backward()
                 utils.clip_gradient(optimizer, opt.grad_clip)
