@@ -83,6 +83,7 @@ class EncoderDecoder(nn.Module):
             loss = self.caption_decoder.build_loss(cap_prob, caption_tensor, caption_mask)
             return loss, torch.zeros(1), torch.zeros(1)
 
+        ##### 强化学习只在解码阶段使用  #######
         elif mode == 'train_rl':
             # gen_result: (eseq_num, eseq_len, ~cap_len), sample_logprobs:(eseq_num, eseq_len, ~cap_len)
             gen_result, sample_logprobs = self.caption_decoder.sample(event, clip, clip_mask, event_seq_idx,
