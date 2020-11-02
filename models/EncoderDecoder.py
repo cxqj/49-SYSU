@@ -156,12 +156,14 @@ class EncoderDecoder(nn.Module):
 
             if True:
                 gt_caption = [[loader.dataset.translate(cap, max_len=50) for cap in caps] for caps in dt['cap_raw']] #将原始语句转为index
-                gt_caption = [gt_caption[cap_vid_ids[i]][cap_event_ids[i]] for i in range(len(cap_vid_ids))]   
-                reward, sample_meteor, greedy_meteor = get_caption_reward(greedy_res, gt_caption, gen_result, self.opt)  # 计算强化学习的reward
-            reward = np.repeat(reward[:, np.newaxis], gen_result.size(1), 1)
+                gt_caption = [gt_caption[cap_vid_ids[i]][cap_event_ids[i]] for i in range(len(cap_vid_ids))]  
+                # rewards为随机采样与贪心采样meteor得分的差，随机采样方式的meteor得分，贪心采样方式的meteor得分
+                reward, sample_meteor, greedy_meteor = get_caption_reward(greedy_res, gt_caption, gen_result, self.opt)    
+            reward = np.repeat(reward[:, np.newaxis], gen_result.size(1), 1)  # (1,Caption_Len)
+            # new_tensor()可以将源张量中的数据复制到目标张量（数据不共享），同时提供了更细致的属性控制：
             caption_loss = self.caption_decoder.build_rl_loss(sample_logprobs, gen_result.float(),
-                                                              sample_logprobs.new_tensor(reward))
-            return reward, caption_loss, sample_meteor, greedy_meteor
+                                                              sample_logprobs.new_tensor(reward)) # 将reward复制到sample_logprobs中
+            return reward, caption_loss, sample_meteor, greedy_meteor  # reward: (1,Caption_Len)  Caption_Loss = Sample_meteor = Greedy_meteor = (1)
 
         elif mode == 'eval':
             with torch.no_grad():
