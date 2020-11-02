@@ -400,3 +400,4 @@ if __name__ == '__main__':
     # out = model(video, event, clip, clip_mask, seq)
     out = model.sample(video, event, clip, clip_mask)
     pass
+
