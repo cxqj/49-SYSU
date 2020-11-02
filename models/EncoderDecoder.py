@@ -143,10 +143,12 @@ class EncoderDecoder(nn.Module):
 
         elif mode == 'train_rl':
             # gen_result: (eseq_num, eseq_len, ~cap_len), sample_logprobs :(eseq_num, eseq_len, ~cap_len)
+            #### 随机采样得到的结果 ####
             gen_result, sample_logprobs = self.caption_decoder.sample(event, clip, clip_mask,
                                                                       opt={'sample_max': 0})  # (batch_size, Prop_N, Caption_Len)  sample_max = 0(随机采样)
             self.caption_decoder.eval()
             with torch.no_grad():
+                #### 使用贪心算法得到的结果，也就是测试结果 ####
                 greedy_res, _ = self.caption_decoder.sample(event, clip, clip_mask)  # 贪心法采样
                 # video_bl, event_bl, clip_bl, clip_mask_bl, _ = self.get_features(dt, dt['gt_featstamps'])
                 # greedy_res, _ = self.caption_model.sample(video_bl, event_bl, clip_bl, clip_mask_bl)
@@ -188,7 +190,14 @@ def array_to_str(arr):
             break
     return out.strip()
 
-
+"""
+SCST的思想就是用当前模型在测试阶段生成的词的reward作为baseline，梯度就变成了：
+      (r(ws)-r(w^))(p-1ws)   1ws表示单词的one-hot向量表示，其中r(w^)=argmaxwtp(wt|ht)，就是在测试阶段使用greedy decoding取概率最大的词来生成句子；  
+   而r(ws)是通过根据概率来随机sample词，如果当前概率最大的词的概率为60%，那就有60%的概率选到它，而不是像greedy decoding一样100%选概率最大的。
+   公式的意思就是：对于如果当前sample到的词比测试阶段生成的词好，那么在这次词的维度上，整个式子的值就是负的（因为后面那一项一定为负），这样梯
+   度就会上升，从而提高这个词的分数st；而对于其他词，后面那一项为正，梯度就会下降，从而降低其他词的分数。
+   参考：https://blog.csdn.net/sinat_26253653/article/details/78458894
+"""
 def get_caption_reward(greedy_res, gt_captions, gen_result, opt):
     greedy_res = greedy_res.detach().cpu().numpy()  # (batch_size*Prop_N, Caption_Len)  贪心采样生成的句子
     gen_result = gen_result.detach().cpu().numpy()  # (batch_size*Prop_N, Caption_Len)  随机采样生成的句子
