@@ -144,20 +144,20 @@ class EncoderDecoder(nn.Module):
         elif mode == 'train_rl':
             # gen_result: (eseq_num, eseq_len, ~cap_len), sample_logprobs :(eseq_num, eseq_len, ~cap_len)
             gen_result, sample_logprobs = self.caption_decoder.sample(event, clip, clip_mask,
-                                                                      opt={'sample_max': 0})
+                                                                      opt={'sample_max': 0})  # (batch_size, Prop_N, Caption_Len)  sample_max = 0(随机采样)
             self.caption_decoder.eval()
             with torch.no_grad():
-                greedy_res, _ = self.caption_decoder.sample(event, clip, clip_mask)
+                greedy_res, _ = self.caption_decoder.sample(event, clip, clip_mask)  # 贪心法采样
                 # video_bl, event_bl, clip_bl, clip_mask_bl, _ = self.get_features(dt, dt['gt_featstamps'])
                 # greedy_res, _ = self.caption_model.sample(video_bl, event_bl, clip_bl, clip_mask_bl)
-            self.caption_decoder.train()
-            gen_result = gen_result.reshape(-1, gen_result.shape[-1])
-            greedy_res = greedy_res.reshape(-1, greedy_res.shape[-1])
+            self.caption_decoder.train()  # 训练模式
+            gen_result = gen_result.reshape(-1, gen_result.shape[-1])   # (batch_size*Prop_N, Caption_Len)  随机采样生成的句子
+            greedy_res = greedy_res.reshape(-1, greedy_res.shape[-1])   # (batch_size*Prop_N, Caption_Len)  贪心采样生成的句子
 
             if True:
-                gt_caption = [[loader.dataset.translate(cap, max_len=50) for cap in caps] for caps in dt['cap_raw']]
-                gt_caption = [gt_caption[cap_vid_ids[i]][cap_event_ids[i]] for i in range(len(cap_vid_ids))]
-                reward, sample_meteor, greedy_meteor = get_caption_reward(greedy_res, gt_caption, gen_result, self.opt)
+                gt_caption = [[loader.dataset.translate(cap, max_len=50) for cap in caps] for caps in dt['cap_raw']] #将原始语句转为index
+                gt_caption = [gt_caption[cap_vid_ids[i]][cap_event_ids[i]] for i in range(len(cap_vid_ids))]   
+                reward, sample_meteor, greedy_meteor = get_caption_reward(greedy_res, gt_caption, gen_result, self.opt)  # 计算强化学习的reward
             reward = np.repeat(reward[:, np.newaxis], gen_result.size(1), 1)
             caption_loss = self.caption_decoder.build_rl_loss(sample_logprobs, gen_result.float(),
                                                               sample_logprobs.new_tensor(reward))
@@ -188,10 +188,11 @@ def array_to_str(arr):
 
 
 def get_caption_reward(greedy_res, gt_captions, gen_result, opt):
-    greedy_res = greedy_res.detach().cpu().numpy()
-    gen_result = gen_result.detach().cpu().numpy()
+    greedy_res = greedy_res.detach().cpu().numpy()  # (batch_size*Prop_N, Caption_Len)  贪心采样生成的句子
+    gen_result = gen_result.detach().cpu().numpy()  # (batch_size*Prop_N, Caption_Len)  随机采样生成的句子
     batch_size = len(gen_result)
 
+    ## 将两种方式生成的句子存入字典 ##
     res = OrderedDict()
     for i in range(batch_size):
         res[i] = [array_to_str(gen_result[i])]
@@ -205,10 +206,10 @@ def get_caption_reward(greedy_res, gt_captions, gen_result, opt):
     res__ = {i: res[i] for i in range(2 * batch_size)}
     gts = {i: gts[i % batch_size] for i in range(2 * batch_size)}
 
-    _, meteor_score = Meteor_scorer.compute_score(gts, res__)
+    _, meteor_score = Meteor_scorer.compute_score(gts, res__)  ## 计算meteor得分
     scores = np.array(meteor_score)
-    rewards = scores[:batch_size] - scores[batch_size:]
+    rewards = scores[:batch_size] - scores[batch_size:]  # rewards为随机采样与贪心采样meteor得分的差
 
-    return rewards, scores[:batch_size], scores[batch_size:]
+    return rewards, scores[:batch_size], scores[batch_size:]  # rewards为随机采样与贪心采样meteor得分的差，随机采样方式的meteor得分，贪心采样方式的meteor得分 
 
 
